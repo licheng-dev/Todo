@@ -1,0 +1,52 @@
+:root {
+  --bg-a: #f8f7f5;
+  --bg-b: #fdf9f5;
+  --bg-c: #f4f4f5;
+
+  --ink: #303030;
+  --ink-2: #858585;
+  --ink-3: #a5a1a0;
+  --ink-4: #696566;
+
+  --gold: #e8c49b;
+  --icon: #9a8f86;
+
+  --glass: rgba(255, 255, 255, 0.48);
+  --glass-border: rgba(255, 255, 255, 0.6);
+
+  --page-radius: 16px;
+  --bar-radius: 40px;
+  --pad-x: 7%;
+
+  --font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC",
+    "Microsoft YaHei", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
