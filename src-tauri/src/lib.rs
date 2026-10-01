@@ -49,14 +49,40 @@ fn io_err(msg: &str) -> tauri::Error {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct ShortcutSetting {
+    code: String,
+    meta: bool,
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+}
+
+impl Default for ShortcutSetting {
+    fn default() -> Self {
+        Self {
+            code: "KeyN".to_string(),
+            meta: true,
+            ctrl: false,
+            alt: false,
+            shift: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 struct AppSettings {
-    #[serde(default)]
     always_on_top: bool,
+    add_shortcut: ShortcutSetting,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { always_on_top: false }
+        Self {
+            always_on_top: false,
+            add_shortcut: ShortcutSetting::default(),
+        }
     }
 }
 
@@ -169,6 +195,35 @@ fn set_always_on_top(
 }
 
 #[tauri::command]
+fn get_add_shortcut(state: tauri::State<AppState>) -> ShortcutSetting {
+    state.settings.lock().unwrap().add_shortcut.clone()
+}
+
+#[tauri::command]
+fn set_add_shortcut(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    shortcut: ShortcutSetting,
+) -> Result<(), String> {
+    if !shortcut.meta && !shortcut.ctrl && !shortcut.alt {
+        return Err("请至少包含 Command、Control 或 Option 中的一个修饰键".to_string());
+    }
+    shortcut::update_add(
+        &shortcut.code,
+        shortcut.meta,
+        shortcut.ctrl,
+        shortcut.alt,
+        shortcut.shift,
+    )?;
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.add_shortcut = shortcut;
+    }
+    save_json(&app, "settings.json", &*state.settings.lock().unwrap());
+    Ok(())
+}
+
+#[tauri::command]
 fn hide_window(app: AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -258,7 +313,10 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 let (tx, rx) = std::sync::mpsc::channel();
-                if let Err(err) = shortcut::install(tx) {
+                let s = settings.add_shortcut.clone();
+                if let Err(err) =
+                    shortcut::install(tx, &s.code, s.meta, s.ctrl, s.alt, s.shift)
+                {
                     eprintln!("global shortcuts unavailable: {err}");
                 } else {
                     std::thread::spawn(move || {
@@ -267,12 +325,6 @@ pub fn run() {
                                 shortcut::ShortcutKind::AddTodo => {
                                     unhide_app(&handle);
                                     let w = ensure_popup(&handle, "add-todo", "添加待办", 480.0, 260.0);
-                                    let _ = w.show();
-                                    let _ = w.set_focus();
-                                }
-                                shortcut::ShortcutKind::Settings => {
-                                    unhide_app(&handle);
-                                    let w = ensure_popup(&handle, "settings", "设置", 360.0, 300.0);
                                     let _ = w.show();
                                     let _ = w.set_focus();
                                 }
@@ -288,6 +340,8 @@ pub fn run() {
             open_settings,
             get_always_on_top,
             set_always_on_top,
+            get_add_shortcut,
+            set_add_shortcut,
             hide_window,
             minimize_window,
             get_todos,

@@ -1,10 +1,57 @@
 <script setup lang="ts">
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+
+interface ShortcutSetting {
+  code: string;
+  meta: boolean;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+}
 
 const alwaysOnTop = ref(false);
 const busy = ref(false);
+
+const addShortcut = ref<ShortcutSetting | null>(null);
+const recording = ref(false);
+const shortcutBusy = ref(false);
+const shortcutError = ref("");
+
+const KEY_LABELS: Record<string, string> = {
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Semicolon: ";",
+  Quote: "'",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Backquote: "`",
+  Minus: "-",
+  Equal: "=",
+  Space: "空格",
+  Enter: "↩",
+  Tab: "⇥",
+};
+
+function keyLabel(code: string): string {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return KEY_LABELS[code] ?? code;
+}
+
+const shortcutLabel = computed(() => {
+  const s = addShortcut.value;
+  if (!s) return "";
+  let label = "";
+  if (s.ctrl) label += "⌃";
+  if (s.alt) label += "⌥";
+  if (s.shift) label += "⇧";
+  if (s.meta) label += "⌘";
+  return label + keyLabel(s.code);
+});
 
 async function sync() {
   if (busy.value) return;
@@ -21,12 +68,55 @@ async function toggle() {
   await sync();
 }
 
+function startRecording() {
+  shortcutError.value = "";
+  recording.value = true;
+}
+
+async function saveShortcut(next: ShortcutSetting) {
+  shortcutBusy.value = true;
+  try {
+    await invoke("set_add_shortcut", { shortcut: next });
+    addShortcut.value = next;
+    recording.value = false;
+    shortcutError.value = "";
+  } catch (err) {
+    shortcutError.value = String(err);
+  } finally {
+    shortcutBusy.value = false;
+  }
+}
+
+function onKeyDown(event: KeyboardEvent) {
+  if (!recording.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    recording.value = false;
+    return;
+  }
+  if (["Meta", "Shift", "Control", "Alt", "CapsLock"].includes(event.key)) return;
+  void saveShortcut({
+    code: event.code,
+    meta: event.metaKey,
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    shift: event.shiftKey,
+  });
+}
+
 async function close() {
   await getCurrentWindow().hide();
 }
 
 onMounted(async () => {
   alwaysOnTop.value = await invoke<boolean>("get_always_on_top");
+  addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
+  window.addEventListener("keydown", onKeyDown, true);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKeyDown, true);
 });
 </script>
 
@@ -47,10 +137,23 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="shortcuts">
-        <p class="hint">快捷键</p>
-        <kbd>Cmd+Shift+N</kbd> 添加待办
-        <kbd>Cmd+,</kbd> 设置
+      <div class="shortcut">
+        <div class="row">
+          <span class="label">添加待办</span>
+          <button
+            class="shortcut-key"
+            :class="{ recording }"
+            type="button"
+            :disabled="shortcutBusy"
+            @click="startRecording"
+          >
+            {{ recording ? "按下组合键…" : shortcutLabel || "未设置" }}
+          </button>
+        </div>
+        <p v-if="shortcutError" class="shortcut-error">{{ shortcutError }}</p>
+        <p v-else class="shortcut-hint">
+          {{ recording ? "按下新的组合键，Esc 取消" : "点击后按下新的组合键" }}
+        </p>
       </div>
 
       <button class="close-btn" @click="close">关闭</button>
@@ -145,26 +248,55 @@ h2 {
   transform: translateX(20px);
 }
 
-.shortcuts {
-  font-size: 12px;
-  opacity: 0.6;
+.shortcut {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
 }
 
-.hint {
-  width: 100%;
-  margin: 0 0 2px;
-  font-weight: 600;
+.shortcut-key {
+  min-width: 88px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
 
-kbd {
-  background: rgba(128, 128, 128, 0.15);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: inherit;
+.shortcut-key:hover:not(:disabled) {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.shortcut-key.recording {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(232, 196, 155, 0.18);
+}
+
+.shortcut-key:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.shortcut-hint,
+.shortcut-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.shortcut-hint {
+  opacity: 0.55;
+}
+
+.shortcut-error {
+  color: #c0564f;
 }
 
 .close-btn {
