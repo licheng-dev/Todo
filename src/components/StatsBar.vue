@@ -3,8 +3,14 @@ import { ref } from "vue";
 
 defineProps<{
   date: string;
+  mode: "today" | "history";
   pending: number;
   done: number;
+}>();
+
+defineEmits<{
+  (e: "date-click"): void;
+  (e: "done-click"): void;
 }>();
 
 const doneEl = ref<HTMLElement | null>(null);
@@ -13,31 +19,54 @@ defineExpose({ doneEl });
 
 <template>
   <footer class="statsbar">
-    <div class="item">
+    <button
+      class="item date"
+      type="button"
+      data-calendar-trigger
+      aria-label="选择日期查看已办"
+      @click="$emit('date-click')"
+    >
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="3.5" y="5" width="17" height="15.5" rx="3.5" />
         <path d="M3.5 9.5h17" />
         <path d="M8 3v4M16 3v4" />
       </svg>
       <span>{{ date }}</span>
-    </div>
+      <svg class="caret" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 10l5 5 5-5" />
+      </svg>
+    </button>
 
     <span class="divider"></span>
 
     <div class="group">
-      <div class="item">
+      <template v-if="mode === 'today'">
+        <div class="item">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" />
+          </svg>
+          <span>今日待办 {{ pending }}</span>
+        </div>
+        <button
+          ref="doneEl"
+          class="item stat-btn"
+          type="button"
+          aria-label="查看今日已办"
+          @click="$emit('done-click')"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
+          </svg>
+          <span>今日已办 {{ done }}</span>
+        </button>
+      </template>
+      <div v-else class="item">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="8.5" />
           <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
         </svg>
-        <span>今日待办 {{ pending }}</span>
-      </div>
-      <div ref="doneEl" class="item">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8.5" />
-          <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
-        </svg>
-        <span>今日已办 {{ done }}</span>
+        <span>当日已办 {{ done }}</span>
       </div>
     </div>
   </footer>
@@ -76,6 +105,37 @@ defineExpose({ doneEl });
   gap: clamp(6px, 1vw, 12px);
 }
 
+.date {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: color 180ms ease;
+}
+
+.stat-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.date:hover,
+.stat-btn:hover {
+  color: var(--gold);
+}
+
+.date:hover .caret {
+  opacity: 1;
+  transform: translateY(1px);
+}
+
 .group {
   display: flex;
   align-items: center;
@@ -97,6 +157,19 @@ defineExpose({ doneEl });
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.caret {
+  width: clamp(11px, 1.4vw, 15px);
+  height: clamp(11px, 1.4vw, 15px);
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.5;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 @media (max-width: 520px) {

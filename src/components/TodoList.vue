@@ -2,7 +2,9 @@
 import { ref } from "vue";
 import type { Todo } from "../types";
 
-defineProps<{ items: Todo[] }>();
+withDefaults(defineProps<{ items: Todo[]; readonly?: boolean }>(), {
+  readonly: false,
+});
 defineEmits<{
   (e: "toggle", item: Todo): void;
   (e: "remove", id: number): void;
@@ -14,16 +16,24 @@ defineExpose({ listEl });
 
 <template>
   <ul ref="listEl" class="list">
-    <li v-for="todo in items" :key="todo.id" :data-id="todo.id" class="card">
+    <li
+      v-for="todo in items"
+      :key="todo.id"
+      :data-id="todo.id"
+      class="card"
+      :class="{ readonly }"
+    >
       <input
         class="check"
         type="checkbox"
         :checked="todo.done"
+        :disabled="readonly"
         aria-label="标记完成"
         @change="$emit('toggle', todo)"
       />
       <span class="text">{{ todo.text }}</span>
       <button
+        v-if="!readonly"
         class="remove"
         type="button"
         aria-label="删除"
@@ -87,6 +97,15 @@ defineExpose({ listEl });
 .check:checked {
   background: var(--gold);
   border-color: var(--gold);
+}
+
+.card.readonly .text {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.card.readonly .check {
+  cursor: default;
 }
 
 .text {

@@ -3,10 +3,12 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Todo } from "../types";
+import { dateKey, formatDateLabel, todayKey } from "../utils/date";
 import TopNav from "./TopNav.vue";
 import EmptyState from "./EmptyState.vue";
 import StatsBar from "./StatsBar.vue";
 import TodoList from "./TodoList.vue";
+import CalendarPopup from "./CalendarPopup.vue";
 
 const todos = ref<Todo[]>([]);
 const listComp = ref<InstanceType<typeof TodoList> | null>(null);
@@ -17,22 +19,21 @@ const reduceMotion = window.matchMedia(
   "(prefers-reduced-motion: reduce)"
 ).matches;
 
+const today = todayKey();
 const pending = computed(() => todos.value.filter((t) => !t.done));
 const hasPending = computed(() => pending.value.length > 0);
 
-const dates = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-const now = new Date();
-const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 ${dates[now.getDay()]}`;
+const selectedDate = ref<string | null>(null);
+const calendarOpen = ref(false);
+const showingHistory = computed(() => selectedDate.value !== null);
 
 function isToday(ms?: number | null): boolean {
-  if (!ms) return false;
-  const d = new Date(ms);
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  return !!ms && dateKey(ms) === today;
 }
+
+const dateLabel = computed(() =>
+  formatDateLabel(selectedDate.value ?? today)
+);
 
 const todayPending = computed(
   () => todos.value.filter((t) => !t.done && isToday(t.created_at)).length
@@ -40,6 +41,46 @@ const todayPending = computed(
 const todayDone = computed(
   () => todos.value.filter((t) => isToday(t.completed_at)).length
 );
+
+const doneDays = computed(() => {
+  const days = new Set<string>();
+  todos.value.forEach((t) => {
+    if (t.completed_at) days.add(dateKey(t.completed_at));
+  });
+  return days;
+});
+
+const selectedDone = computed(() => {
+  if (!selectedDate.value) return [];
+  return todos.value
+    .filter(
+      (t) => t.completed_at && dateKey(t.completed_at) === selectedDate.value
+    )
+    .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0));
+});
+
+const doneCount = computed(() =>
+  showingHistory.value ? selectedDone.value.length : todayDone.value
+);
+
+function toggleCalendar() {
+  calendarOpen.value = !calendarOpen.value;
+}
+
+function selectDate(key: string) {
+  calendarOpen.value = false;
+  selectedDate.value = key === today ? null : key;
+}
+
+function showTodayDone() {
+  calendarOpen.value = false;
+  selectedDate.value = today;
+}
+
+function backToToday() {
+  selectedDate.value = null;
+  calendarOpen.value = false;
+}
 
 function getListEl(): HTMLElement | null {
   return listComp.value?.listEl ?? null;
@@ -189,9 +230,27 @@ onUnmounted(() => {
 
     <main class="stage">
       <div class="stage-inner">
+        <div v-if="showingHistory" class="history-head">
+          <button class="back" type="button" @click="backToToday">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14.5 6.5 9 12l5.5 5.5" />
+            </svg>
+            <span>返回今天待办</span>
+          </button>
+        </div>
+
         <Transition name="swap" mode="out-in">
           <TodoList
-            v-if="hasPending"
+            v-if="showingHistory && selectedDone.length"
+            key="history"
+            :items="selectedDone"
+            readonly
+          />
+          <p v-else-if="showingHistory" key="history-empty" class="history-empty">
+            该日期没有已办
+          </p>
+          <TodoList
+            v-else-if="hasPending"
             key="list"
             ref="listComp"
             :items="pending"
@@ -206,14 +265,37 @@ onUnmounted(() => {
     <StatsBar
       ref="statsComp"
       :date="dateLabel"
+      :mode="showingHistory ? 'history' : 'today'"
       :pending="todayPending"
-      :done="todayDone"
+      :done="doneCount"
+      @date-click="toggleCalendar"
+      @done-click="showTodayDone"
     />
+
+    <button
+      v-if="calendarOpen"
+      class="cal-backdrop"
+      type="button"
+      aria-label="关闭日历"
+      @click="calendarOpen = false"
+    ></button>
+
+    <Transition name="cal">
+      <CalendarPopup
+        v-if="calendarOpen"
+        :done-days="doneDays"
+        :value="selectedDate"
+        :today="today"
+        @select="selectDate"
+        @close="calendarOpen = false"
+      />
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 .page {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -246,6 +328,75 @@ onUnmounted(() => {
   padding: clamp(12px, 3vh, 28px) var(--pad-x) clamp(20px, 6vh, 48px);
 }
 
+.cal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.history-head {
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: 12px;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.16)
+  );
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  box-shadow:
+    0 12px 28px -22px rgba(201, 190, 178, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  color: var(--ink-4);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.back:hover {
+  color: var(--gold);
+  transform: translateX(-1px);
+}
+
+.back:active {
+  transform: scale(0.97);
+}
+
+.back svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.history-empty {
+  margin: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  font-size: clamp(14px, 2.6vw, 18px);
+}
+
 .swap-enter-active,
 .swap-leave-active {
   transition: opacity 200ms ease;
@@ -256,9 +407,23 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+.cal-enter-active,
+.cal-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+  transform-origin: bottom left;
+}
+
+.cal-enter-from,
+.cal-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .swap-enter-active,
-  .swap-leave-active {
+  .swap-leave-active,
+  .cal-enter-active,
+  .cal-leave-active {
     transition: none;
   }
 }
