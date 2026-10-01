@@ -34,6 +34,9 @@
     "targets": "all",
     "icon": [
       "icons/icon.icns"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }
