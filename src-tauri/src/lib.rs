@@ -132,8 +132,17 @@ fn emit_todos(app: &AppHandle) {
     let _ = app.emit("todos-changed", todos);
 }
 
+#[cfg(target_os = "macos")]
+fn unhide_app(app: &AppHandle) {
+    let _ = app.show();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn unhide_app(_app: &AppHandle) {}
+
 #[tauri::command]
 fn open_settings(app: AppHandle) {
+    unhide_app(&app);
     let w = ensure_popup(&app, "settings", "设置", 360.0, 300.0);
     let _ = w.show();
     let _ = w.set_focus();
@@ -157,6 +166,27 @@ fn set_always_on_top(
     apply_always_on_top(&app, enabled);
     save_json(&app, "settings.json", &*state.settings.lock().unwrap());
     Ok(())
+}
+
+#[tauri::command]
+fn hide_window(app: AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.hide();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
+}
+
+#[tauri::command]
+fn minimize_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.minimize();
+    }
 }
 
 #[tauri::command]
@@ -235,11 +265,13 @@ pub fn run() {
                         while let Ok(kind) = rx.recv() {
                             match kind {
                                 shortcut::ShortcutKind::AddTodo => {
+                                    unhide_app(&handle);
                                     let w = ensure_popup(&handle, "add-todo", "添加待办", 480.0, 260.0);
                                     let _ = w.show();
                                     let _ = w.set_focus();
                                 }
                                 shortcut::ShortcutKind::Settings => {
+                                    unhide_app(&handle);
                                     let w = ensure_popup(&handle, "settings", "设置", 360.0, 300.0);
                                     let _ = w.show();
                                     let _ = w.set_focus();
@@ -256,11 +288,30 @@ pub fn run() {
             open_settings,
             get_always_on_top,
             set_always_on_top,
+            hide_window,
+            minimize_window,
             get_todos,
             add_todo,
             delete_todo,
             toggle_todo,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
+                if !has_visible_windows {
+                    #[cfg(target_os = "macos")]
+                    let _ = app_handle.show();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        });
 }

@@ -212,14 +212,27 @@ async function openSettings() {
   await invoke("open_settings");
 }
 
+function onKeyDown(event: KeyboardEvent) {
+  if (!event.metaKey || event.shiftKey || event.ctrlKey || event.altKey) return;
+  if (event.key === "w") {
+    event.preventDefault();
+    void invoke("hide_window");
+  } else if (event.key === "m") {
+    event.preventDefault();
+    void invoke("minimize_window");
+  }
+}
+
 onMounted(async () => {
   await load();
+  window.addEventListener("keydown", onKeyDown);
   unlisten = await listen<Todo[]>("todos-changed", (event) => {
     todos.value = event.payload;
   });
 });
 
 onUnmounted(() => {
+  window.removeEventListener("keydown", onKeyDown);
   unlisten?.();
 });
 </script>
