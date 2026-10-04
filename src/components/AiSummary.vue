@@ -6,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Todo } from "../types";
 import { dateKey, formatDateLabel, todayKey } from "../utils/date";
 import { SYSTEM_PROMPT } from "../ai/prompt";
-import type { AiEvent } from "../ai/config";
+import type { AiEvent, AiSettings } from "../ai/config";
 
 const todos = ref<Todo[]>([]);
 const summary = ref("");
@@ -14,6 +14,7 @@ const running = ref(false);
 const editing = ref(false);
 const error = ref("");
 const copied = ref(false);
+const hasKey = ref<boolean | null>(null);
 const bodyEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 let unlisten: UnlistenFn | null = null;
@@ -30,8 +31,21 @@ const todayDone = computed(() =>
     .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
 );
 
+const canGenerate = computed(
+  () => hasKey.value === true && todayDone.value.length > 0
+);
+
 async function loadTodos() {
   todos.value = await invoke<Todo[]>("get_todos");
+}
+
+async function loadAiSettings() {
+  try {
+    const settings = await invoke<AiSettings>("get_ai_settings");
+    hasKey.value = !!settings.api_key.trim();
+  } catch {
+    hasKey.value = false;
+  }
 }
 
 watch(summary, async () => {
@@ -46,7 +60,7 @@ function buildUserPrompt(): string {
 }
 
 async function generate() {
-  if (running.value || !todayDone.value.length) return;
+  if (running.value || !canGenerate.value) return;
   editing.value = false;
   summary.value = "";
   error.value = "";
@@ -100,6 +114,7 @@ async function close() {
 
 onMounted(async () => {
   await loadTodos();
+  await loadAiSettings();
   unlisten = await listen<AiEvent>("ai-summary", (event) => {
     const payload = event.payload;
     if (payload.kind === "chunk") {
@@ -115,7 +130,10 @@ onMounted(async () => {
     todos.value = event.payload;
   });
   unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload }) => {
-    if (payload) void loadTodos();
+    if (payload) {
+      void loadTodos();
+      void loadAiSettings();
+    }
   });
 });
 
@@ -143,6 +161,12 @@ onUnmounted(() => {
       </header>
 
       <p class="meta">今日已办 {{ todayDone.length }} 条</p>
+
+      <p v-if="hasKey === false" class="notice">
+        尚未配置 AI 密钥，点击
+        <button class="link" type="button" @click="openSettings">前往设置</button>
+        填写后即可生成日报。
+      </p>
 
       <section ref="bodyEl" class="body">
         <div v-if="error" class="state error">
@@ -189,7 +213,12 @@ onUnmounted(() => {
           >
             {{ copied ? "已复制" : "复制" }}
           </button>
-          <button class="btn primary" type="button" @click="generate">
+          <button
+            class="btn primary"
+            type="button"
+            :disabled="!canGenerate"
+            @click="generate"
+          >
             重新生成
           </button>
         </template>
@@ -198,7 +227,7 @@ onUnmounted(() => {
           v-else
           class="btn primary"
           type="button"
-          :disabled="!todayDone.length"
+          :disabled="!canGenerate"
           @click="generate"
         >
           生成日报
@@ -304,6 +333,13 @@ h2 {
   margin: 0;
   font-size: 12px;
   opacity: 0.65;
+}
+
+.notice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c0564f;
 }
 
 .body {
