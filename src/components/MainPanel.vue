@@ -212,6 +212,10 @@ async function openSettings() {
   await invoke("open_settings");
 }
 
+async function openAi() {
+  await invoke("open_ai");
+}
+
 function onKeyDown(event: KeyboardEvent) {
   if (!event.metaKey || event.shiftKey || event.ctrlKey || event.altKey) return;
   if (event.key === "w") {
@@ -239,38 +243,34 @@ onUnmounted(() => {
 
 <template>
   <div class="page" data-tauri-drag-region="deep">
-    <TopNav @more="openSettings" />
+    <TopNav @more="openSettings" @ai="openAi" />
 
     <main class="stage">
       <div class="stage-inner">
-        <div v-if="showingHistory" class="history-head">
-          <button class="back" type="button" @click="backToToday">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M14.5 6.5 9 12l5.5 5.5" />
-            </svg>
-            <span>返回今天待办</span>
-          </button>
-        </div>
+        <Transition name="swap">
+          <div v-if="showingHistory" key="history" class="view">
+            <div class="history-head">
+              <button class="back" type="button" @click="backToToday">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14.5 6.5 9 12l5.5 5.5" />
+                </svg>
+                <span>返回今天待办</span>
+              </button>
+            </div>
+            <TodoList v-if="selectedDone.length" :items="selectedDone" readonly />
+            <p v-else class="history-empty">该日期没有已办</p>
+          </div>
 
-        <Transition name="swap" mode="out-in">
-          <TodoList
-            v-if="showingHistory && selectedDone.length"
-            key="history"
-            :items="selectedDone"
-            readonly
-          />
-          <p v-else-if="showingHistory" key="history-empty" class="history-empty">
-            该日期没有已办
-          </p>
-          <TodoList
-            v-else-if="hasPending"
-            key="list"
-            ref="listComp"
-            :items="pending"
-            @toggle="toggle"
-            @remove="remove"
-          />
-          <EmptyState v-else key="empty" />
+          <div v-else key="today" class="view">
+            <TodoList
+              v-if="hasPending"
+              ref="listComp"
+              :items="pending"
+              @toggle="toggle"
+              @remove="remove"
+            />
+            <EmptyState v-else />
+          </div>
         </Transition>
       </div>
     </main>
@@ -333,8 +333,17 @@ onUnmounted(() => {
 }
 
 .stage-inner {
+  position: relative;
   flex: 1;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.view {
+  width: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -413,6 +422,11 @@ onUnmounted(() => {
 .swap-enter-active,
 .swap-leave-active {
   transition: opacity 200ms ease;
+}
+
+.swap-leave-active {
+  position: absolute;
+  inset: 0;
 }
 
 .swap-enter-from,

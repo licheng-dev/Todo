@@ -2,6 +2,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import {
+  DEFAULT_PROVIDER,
+  PROVIDERS,
+  type AiProvider,
+  type AiSettings,
+} from "../ai/config";
 
 interface ShortcutSetting {
   code: string;
@@ -18,6 +24,12 @@ const addShortcut = ref<ShortcutSetting | null>(null);
 const recording = ref(false);
 const shortcutBusy = ref(false);
 const shortcutError = ref("");
+
+const aiProvider = ref<AiProvider>(DEFAULT_PROVIDER);
+const aiApiKey = ref("");
+const aiBusy = ref(false);
+const aiSaved = ref(false);
+let aiSavedTimer: number | null = null;
 
 const KEY_LABELS: Record<string, string> = {
   Comma: ",",
@@ -109,14 +121,34 @@ async function close() {
   await getCurrentWindow().hide();
 }
 
+async function saveAi() {
+  if (aiBusy.value) return;
+  aiBusy.value = true;
+  try {
+    await invoke("set_ai_settings", {
+      provider: aiProvider.value,
+      apiKey: aiApiKey.value.trim(),
+    });
+    aiSaved.value = true;
+    if (aiSavedTimer) window.clearTimeout(aiSavedTimer);
+    aiSavedTimer = window.setTimeout(() => (aiSaved.value = false), 1600);
+  } finally {
+    aiBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   alwaysOnTop.value = await invoke<boolean>("get_always_on_top");
   addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
+  const ai = await invoke<AiSettings>("get_ai_settings");
+  aiProvider.value = ai.provider;
+  aiApiKey.value = ai.api_key;
   window.addEventListener("keydown", onKeyDown, true);
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeyDown, true);
+  if (aiSavedTimer) window.clearTimeout(aiSavedTimer);
 });
 </script>
 
@@ -153,6 +185,41 @@ onUnmounted(() => {
         <p v-if="shortcutError" class="shortcut-error">{{ shortcutError }}</p>
         <p v-else class="shortcut-hint">
           {{ recording ? "按下新的组合键，Esc 取消" : "点击后按下新的组合键" }}
+        </p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="ai">
+        <div class="row">
+          <span class="label">AI 提供商</span>
+          <select
+            v-model="aiProvider"
+            class="select"
+            :disabled="aiBusy"
+            @change="saveAi"
+          >
+            <option v-for="p in PROVIDERS" :key="p.value" :value="p.value">
+              {{ p.label }}
+            </option>
+          </select>
+        </div>
+        <div class="row">
+          <span class="label">API Key</span>
+          <input
+            v-model="aiApiKey"
+            class="input"
+            type="password"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="填写 API Key"
+            :disabled="aiBusy"
+            @blur="saveAi"
+            @keydown.enter="saveAi"
+          />
+        </div>
+        <p class="ai-hint">
+          {{ aiBusy ? "保存中…" : aiSaved ? "已保存" : "Key 仅保存在本地" }}
         </p>
       </div>
 
@@ -297,6 +364,57 @@ h2 {
 
 .shortcut-error {
   color: #c0564f;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(150, 145, 140, 0.22);
+}
+
+.ai {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.select,
+.input {
+  width: 150px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.select {
+  cursor: pointer;
+}
+
+.input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.select:focus,
+.input:focus {
+  border-color: var(--gold);
+}
+
+.select:disabled,
+.input:disabled {
+  opacity: 0.6;
+}
+
+.ai-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.55;
 }
 
 .close-btn {

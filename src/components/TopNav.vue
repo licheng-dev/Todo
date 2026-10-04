@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineEmits<{ (e: "more"): void }>();
+defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
 </script>
 
 <template>
@@ -9,13 +9,25 @@ defineEmits<{ (e: "more"): void }>();
       <span class="brand-line"></span>
     </div>
 
-    <button class="more" type="button" aria-label="更多" @click="$emit('more')">
-      <svg class="more-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <circle class="dot" cx="6" cy="12" r="1.9" />
-        <circle class="dot" cx="12" cy="12" r="1.9" />
-        <circle class="dot" cx="18" cy="12" r="1.9" />
-      </svg>
-    </button>
+    <div class="actions">
+      <button class="more" type="button" aria-label="AI 日报" @click="$emit('ai')">
+        <svg class="more-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            class="spark"
+            d="M12 3.4l1.7 4.6 4.6 1.7-4.6 1.7L12 16l-1.7-4.6L5.7 9.7l4.6-1.7L12 3.4z"
+          />
+          <path class="spark small" d="M18.4 14.2l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1z" />
+        </svg>
+      </button>
+
+      <button class="more" type="button" aria-label="更多" @click="$emit('more')">
+        <svg class="more-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle class="dot" cx="6" cy="12" r="1.9" />
+          <circle class="dot" cx="12" cy="12" r="1.9" />
+          <circle class="dot" cx="18" cy="12" r="1.9" />
+        </svg>
+      </button>
+    </div>
   </header>
 </template>
 
@@ -47,6 +59,13 @@ defineEmits<{ (e: "more"): void }>();
   height: 3px;
   border-radius: 999px;
   background: var(--gold);
+}
+
+.actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .more {
@@ -113,6 +132,21 @@ defineEmits<{ (e: "more"): void }>();
   transition:
     transform 180ms ease,
     fill 180ms ease;
+}
+
+.spark {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 180ms ease;
+}
+
+.spark.small {
+  opacity: 0.75;
+}
+
+.more:hover .spark {
+  transform: scale(1.15) rotate(8deg);
 }
 
 .more:hover .dot {

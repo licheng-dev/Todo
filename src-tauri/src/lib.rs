@@ -1,7 +1,14 @@
 mod shortcut;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{fs, sync::Mutex};
+use std::{
+    fs,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(target_os = "macos")]
@@ -75,6 +82,8 @@ impl Default for ShortcutSetting {
 struct AppSettings {
     always_on_top: bool,
     add_shortcut: ShortcutSetting,
+    ai_provider: String,
+    ai_api_key: String,
 }
 
 impl Default for AppSettings {
@@ -82,12 +91,30 @@ impl Default for AppSettings {
         Self {
             always_on_top: false,
             add_shortcut: ShortcutSetting::default(),
+            ai_provider: "deepseek".to_string(),
+            ai_api_key: String::new(),
         }
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AiSettings {
+    provider: String,
+    api_key: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum AiEvent {
+    Chunk { text: String },
+    Done,
+    Error { message: String },
+}
+
 pub struct AppState {
     settings: Mutex<AppSettings>,
+    summarizing: AtomicBool,
+    cancel: AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -169,9 +196,209 @@ fn unhide_app(_app: &AppHandle) {}
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     unhide_app(&app);
-    let w = ensure_popup(&app, "settings", "设置", 360.0, 300.0);
+    let w = ensure_popup(&app, "settings", "设置", 360.0, 452.0);
     let _ = w.show();
     let _ = w.set_focus();
+}
+
+#[tauri::command]
+fn open_ai(app: AppHandle) {
+    unhide_app(&app);
+    let w = ensure_popup(&app, "ai", "AI 日报", 480.0, 560.0);
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+fn provider_config(provider: &str) -> Result<(&'static str, &'static str), String> {
+    match provider {
+        "deepseek" => Ok(("https://api.deepseek.com/chat/completions", "deepseek-chat")),
+        "qwen" => Ok((
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen-plus",
+        )),
+        "kimi" => Ok((
+            "https://api.moonshot.cn/v1/chat/completions",
+            "moonshot-v1-8k",
+        )),
+        other => Err(format!("未知的 AI 提供商: {other}")),
+    }
+}
+
+fn extract_error(text: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(msg) = json["error"]["message"].as_str() {
+            return msg.to_string();
+        }
+        if let Some(msg) = json["message"].as_str() {
+            return msg.to_string();
+        }
+    }
+    if text.is_empty() {
+        "未知错误".to_string()
+    } else {
+        text.chars().take(300).collect()
+    }
+}
+
+fn emit_sse_line(app: &AppHandle, line: &str) {
+    let line = line.trim_end_matches(['\r', '\n']);
+    let Some(data) = line.strip_prefix("data:") else {
+        return;
+    };
+    let data = data.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return;
+    }
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+            if !content.is_empty() {
+                let _ = app.emit_to(
+                    "ai",
+                    "ai-summary",
+                    AiEvent::Chunk {
+                        text: content.to_string(),
+                    },
+                );
+            }
+        }
+    }
+}
+
+async fn stream_summary(
+    app: &AppHandle,
+    url: &str,
+    model: &str,
+    api_key: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| format!("初始化请求失败: {e}"))?;
+
+    let body = serde_json::json!({
+        "model": model,
+        "stream": true,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt },
+        ],
+    });
+
+    let mut resp = client
+        .post(url)
+        .bearer_auth(api_key)
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "服务返回错误 ({status}): {}",
+            extract_error(&text)
+        ));
+    }
+
+    let mut buf = String::new();
+    loop {
+        if app.state::<AppState>().cancel.load(Ordering::SeqCst) {
+            break;
+        }
+        match resp.chunk().await {
+            Ok(Some(bytes)) => {
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buf.find('\n') {
+                    let line: String = buf.drain(..=pos).collect();
+                    emit_sse_line(app, &line);
+                }
+            }
+            Ok(None) => break,
+            Err(e) => return Err(format!("读取响应失败: {e}")),
+        }
+    }
+
+    if !buf.trim().is_empty() {
+        emit_sse_line(app, &buf);
+    }
+
+    let _ = app.emit_to("ai", "ai-summary", AiEvent::Done);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_ai_settings(state: tauri::State<AppState>) -> AiSettings {
+    let settings = state.settings.lock().unwrap();
+    AiSettings {
+        provider: settings.ai_provider.clone(),
+        api_key: settings.ai_api_key.clone(),
+    }
+}
+
+#[tauri::command]
+fn set_ai_settings(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    provider: String,
+    api_key: String,
+) -> Result<(), String> {
+    if provider_config(&provider).is_err() {
+        return Err("不支持的 AI 提供商".to_string());
+    }
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.ai_provider = provider;
+        settings.ai_api_key = api_key.trim().to_string();
+    }
+    save_json(&app, "settings.json", &*state.settings.lock().unwrap());
+    Ok(())
+}
+
+#[tauri::command]
+fn start_summary(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    system_prompt: String,
+    user_prompt: String,
+) -> Result<(), String> {
+    let (provider, api_key) = {
+        let settings = state.settings.lock().unwrap();
+        (settings.ai_provider.clone(), settings.ai_api_key.clone())
+    };
+    if api_key.trim().is_empty() {
+        return Err("尚未配置 API Key，请先在设置中填写".to_string());
+    }
+    let (url, model) = provider_config(&provider)?;
+
+    if state.summarizing.swap(true, Ordering::SeqCst) {
+        return Err("正在生成中，请稍候".to_string());
+    }
+    state.cancel.store(false, Ordering::SeqCst);
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result =
+            stream_summary(&handle, url, model, &api_key, &system_prompt, &user_prompt).await;
+        if let Err(message) = result {
+            let _ = handle.emit_to("ai", "ai-summary", AiEvent::Error { message });
+        }
+        handle
+            .state::<AppState>()
+            .summarizing
+            .store(false, Ordering::SeqCst);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_summary(state: tauri::State<AppState>) {
+    state.cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -298,6 +525,8 @@ pub fn run() {
 
             app.manage(AppState {
                 settings: Mutex::new(settings.clone()),
+                summarizing: AtomicBool::new(false),
+                cancel: AtomicBool::new(false),
             });
 
             apply_always_on_top(app.handle(), settings.always_on_top);
@@ -338,6 +567,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_settings,
+            open_ai,
             get_always_on_top,
             set_always_on_top,
             get_add_shortcut,
@@ -348,6 +578,10 @@ pub fn run() {
             add_todo,
             delete_todo,
             toggle_todo,
+            get_ai_settings,
+            set_ai_settings,
+            start_summary,
+            cancel_summary,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
