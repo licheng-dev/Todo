@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import TodoIllustration from "./TodoIllustration.vue";
+// import TodoIllustration from "./TodoIllustration.vue";
 </script>
 
 <template>
   <div class="empty">
-    <div class="illus">
-      <TodoIllustration />
-    </div>
+<!--    <div class="illus">-->
+<!--      <TodoIllustration />-->
+<!--    </div>-->
     <h2 class="title">还没有待办事项</h2>
     <p class="hint">按 Cmd + Shift + N 添加</p>
   </div>
@@ -28,7 +28,7 @@ import TodoIllustration from "./TodoIllustration.vue";
 }
 
 .title {
-  margin: 32px 0 0;
+  margin: 62px 0 0;
   font-size: clamp(19px, 3.2vw, 26px);
   font-weight: 500;
   color: var(--ink-2);
