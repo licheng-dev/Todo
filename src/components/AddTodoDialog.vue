@@ -40,7 +40,7 @@ async function cancel() {
           @keydown.esc.prevent="cancel"
         ></textarea>
         <div class="actions">
-          <button type="button" class="btn-cancel" @click="cancel">取消</button>
+          <button type="button" class="btn-cancel" @click="cancel">关闭</button>
           <button type="submit" class="btn-submit" :disabled="busy || !draft.trim()">
             确认
           </button>

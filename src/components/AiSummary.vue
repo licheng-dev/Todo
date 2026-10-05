@@ -121,6 +121,12 @@ async function close() {
   await getCurrentWindow().hide();
 }
 
+function onKeyDown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    void close();
+  }
+}
+
 onMounted(async () => {
   await loadTodos();
   await loadAiSettings();
@@ -144,12 +150,14 @@ onMounted(async () => {
       void loadAiSettings();
     }
   });
+  window.addEventListener("keydown", onKeyDown);
 });
 
 onUnmounted(() => {
   unlisten?.();
   unlistenTodos?.();
   unlistenFocus?.();
+  window.removeEventListener("keydown", onKeyDown);
   if (copyTimer) window.clearTimeout(copyTimer);
 });
 </script>
@@ -162,11 +170,6 @@ onUnmounted(() => {
           <h2>AI 日报</h2>
           <span class="date">{{ dateLabel }}</span>
         </div>
-        <button class="close" type="button" aria-label="关闭" @click="close">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 7l10 10M17 7L7 17" />
-          </svg>
-        </button>
       </header>
 
       <p class="meta">今日已办 {{ todayDone.length }} 条</p>
@@ -204,6 +207,8 @@ onUnmounted(() => {
       </section>
 
       <footer class="foot">
+        <button class="btn ghost" type="button" @click="close">关闭</button>
+
         <button v-if="running" class="btn ghost" type="button" @click="stop">停止</button>
 
         <template v-else-if="summary">
@@ -307,35 +312,6 @@ h2 {
 .date {
   font-size: 11.5px;
   opacity: 0.6;
-}
-
-.close {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(128, 128, 128, 0.12);
-  color: var(--ink-4);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 180ms ease, color 180ms ease;
-}
-
-.close:hover {
-  background: rgba(128, 128, 128, 0.22);
-  color: var(--gold);
-}
-
-.close svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
 }
 
 .meta {

@@ -103,6 +103,36 @@ struct AiSettings {
     api_key: String,
 }
 
+const REPO_LATEST_RELEASE_API: &str = "https://api.github.com/repos/licheng-dev/Todo/releases/latest";
+
+#[derive(Debug, Clone, Serialize)]
+struct UpdateInfo {
+    current: String,
+    latest: String,
+    has_update: bool,
+    url: String,
+}
+
+fn parse_version(version: &str) -> Vec<u32> {
+    version
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split(['.', '-', '+'])
+        .map_while(|part| part.parse::<u32>().ok())
+        .collect()
+}
+
+fn is_newer(latest: &[u32], current: &[u32]) -> bool {
+    for i in 0..latest.len().max(current.len()) {
+        let l = latest.get(i).copied().unwrap_or(0);
+        let c = current.get(i).copied().unwrap_or(0);
+        if l != c {
+            return l > c;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum AiEvent {
@@ -196,7 +226,7 @@ fn unhide_app(_app: &AppHandle) {}
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     unhide_app(&app);
-    let w = ensure_popup(&app, "settings", "设置", 360.0, 452.0);
+    let w = ensure_popup(&app, "settings", "设置", 360.0, 560.0);
     let _ = w.show();
     let _ = w.set_focus();
 }
@@ -402,6 +432,63 @@ fn cancel_summary(state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
+async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    let current = app.package_info().version.to_string();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("初始化请求失败: {e}"))?;
+
+    let resp = client
+        .get(REPO_LATEST_RELEASE_API)
+        .header("User-Agent", "zhaomu-updater")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("网络请求失败: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("检查更新失败 (HTTP {status})"));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {e}"))?;
+
+    let tag = json["tag_name"]
+        .as_str()
+        .ok_or_else(|| "未找到版本信息".to_string())?;
+    let url = json["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/licheng-dev/Todo/releases")
+        .to_string();
+
+    Ok(UpdateInfo {
+        current: current.clone(),
+        latest: tag.to_string(),
+        has_update: is_newer(&parse_version(tag), &parse_version(&current)),
+        url,
+    })
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open").arg(&url).spawn();
+
+    result.map(|_| ()).map_err(|e| format!("打开链接失败: {e}"))
+}
+
+#[tauri::command]
 fn get_always_on_top(state: tauri::State<AppState>) -> bool {
     state.settings.lock().unwrap().always_on_top
 }
@@ -589,6 +676,8 @@ pub fn run() {
             set_ai_settings,
             start_summary,
             cancel_summary,
+            check_update,
+            open_url,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

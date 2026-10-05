@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
@@ -30,6 +31,30 @@ const aiApiKey = ref("");
 const aiBusy = ref(false);
 const aiSaved = ref(false);
 let aiSavedTimer: number | null = null;
+
+interface UpdateInfo {
+  current: string;
+  latest: string;
+  has_update: boolean;
+  url: string;
+}
+
+type UpdateState = "idle" | "checking" | "latest" | "available" | "error";
+
+const version = ref("");
+const updateState = ref<UpdateState>("idle");
+const updateUrl = ref("");
+const updateError = ref("");
+const updateMessage = ref("");
+let updateTimer: number | null = null;
+
+function clearUpdateMessageSoon() {
+  if (updateTimer) window.clearTimeout(updateTimer);
+  updateTimer = window.setTimeout(() => {
+    updateMessage.value = "";
+    updateTimer = null;
+  }, 3000);
+}
 
 const KEY_LABELS: Record<string, string> = {
   Comma: ",",
@@ -100,7 +125,10 @@ async function saveShortcut(next: ShortcutSetting) {
 }
 
 function onKeyDown(event: KeyboardEvent) {
-  if (!recording.value) return;
+  if (!recording.value) {
+    if (event.key === "Escape") void close();
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   if (event.key === "Escape") {
@@ -137,18 +165,54 @@ async function saveAi() {
   }
 }
 
+async function checkUpdate() {
+  if (updateState.value === "checking") return;
+  if (updateTimer) {
+    window.clearTimeout(updateTimer);
+    updateTimer = null;
+  }
+  updateState.value = "checking";
+  updateError.value = "";
+  updateMessage.value = "检查中…";
+  try {
+    const info = await invoke<UpdateInfo>("check_update");
+    updateUrl.value = info.url;
+    updateState.value = info.has_update ? "available" : "latest";
+    updateMessage.value = info.has_update
+      ? `发现新版本 ${info.latest}`
+      : "已是最新版本";
+  } catch (err) {
+    updateError.value = String(err);
+    updateState.value = "error";
+    updateMessage.value = updateError.value;
+  }
+  clearUpdateMessageSoon();
+}
+
+async function goDownload() {
+  if (!updateUrl.value) return;
+  try {
+    await invoke("open_url", { url: updateUrl.value });
+  } catch (err) {
+    updateError.value = String(err);
+    updateState.value = "error";
+  }
+}
+
 onMounted(async () => {
   alwaysOnTop.value = await invoke<boolean>("get_always_on_top");
   addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
   const ai = await invoke<AiSettings>("get_ai_settings");
   aiProvider.value = ai.provider;
   aiApiKey.value = ai.api_key;
+  version.value = await getVersion();
   window.addEventListener("keydown", onKeyDown, true);
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeyDown, true);
   if (aiSavedTimer) window.clearTimeout(aiSavedTimer);
+  if (updateTimer) window.clearTimeout(updateTimer);
 });
 </script>
 
@@ -223,6 +287,40 @@ onUnmounted(() => {
         </p>
       </div>
 
+      <div class="divider"></div>
+
+      <div class="update">
+        <div class="row">
+          <span class="label">版本</span>
+          <span class="version">
+            <span
+              v-if="updateMessage"
+              class="update-status"
+              :class="{ error: updateState === 'error' }"
+            >
+              {{ updateMessage }}
+            </span>
+            v{{ version || "—" }}
+          </span>
+        </div>
+      </div>
+
+      <button
+        v-if="updateState === 'available'"
+        class="download-btn"
+        @click="goDownload"
+      >
+        前往下载
+      </button>
+      <button
+        v-else
+        class="update-btn"
+        :disabled="updateState === 'checking'"
+        @click="checkUpdate"
+      >
+        检查更新
+      </button>
+
       <button class="close-btn" @click="close">关闭</button>
     </div>
   </div>
@@ -231,7 +329,8 @@ onUnmounted(() => {
 <style scoped>
 .settings {
   width: 100vw;
-  height: 100vh;
+  height: 90vh;
+  margin: 5vh 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -415,6 +514,64 @@ h2 {
   font-size: 11px;
   line-height: 1.4;
   opacity: 0.55;
+}
+
+.update {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.version {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-status {
+  font-size: 12px;
+  opacity: 0.6;
+  transition: opacity 0.3s;
+}
+
+.update-status.error {
+  color: #c0564f;
+  opacity: 1;
+}
+
+.update-btn,
+.download-btn {
+  align-self: center;
+  min-width: 88px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.update-btn:hover:not(:disabled),
+.download-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.download-btn {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(232, 196, 155, 0.18);
+}
+
+.update-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .close-btn {
