@@ -5,7 +5,7 @@ defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
 <template>
   <header class="topnav">
     <div class="brand">
-      <span class="brand-text">TO DO</span>
+      <span class="brand-text">朝暮</span>
       <span class="brand-line"></span>
     </div>
 
@@ -37,25 +37,26 @@ defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: clamp(20px, 2vh, 30px) var(--pad-x) 0;
+  padding: clamp(20px, 2vh, 30px) var(--pad-x) 0 max(var(--pad-x), 84px);
 }
 
 .brand {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-left: 20px;
 }
 
 .brand-text {
-  font-size: clamp(16px, 2.4vw, 24px);
+  font-size: clamp(18px, 2.6vw, 26px);
   font-weight: 400;
-  letter-spacing: 8px;
+  letter-spacing: 3px;
   color: #454545;
   line-height: 1;
 }
 
 .brand-line {
-  width: 80px;
+  width: 40px;
   height: 3px;
   border-radius: 999px;
   background: var(--gold);

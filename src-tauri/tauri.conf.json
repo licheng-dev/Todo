@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "todo",
+  "productName": "朝暮",
   "version": "1.0.1",
   "identifier": "com.licheng.todo",
   "build": {
@@ -14,13 +14,17 @@
     "windows": [
       {
         "label": "main",
-        "title": "todo",
+        "title": "朝暮",
         "width": 520,
         "height": 560,
         "minWidth": 460,
         "minHeight": 500,
         "resizable": true,
-        "decorations": false,
+        "maximizable": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 22, "y": 32 },
+        "hiddenTitle": true,
         "transparent": true,
         "visible": true
       }

@@ -520,6 +520,13 @@ pub fn run() {
     let builder = tauri::Builder::default();
 
     builder
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .setup(|app| {
             let settings: AppSettings = load_json(app.handle(), "settings.json");
 
