@@ -4,7 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Todo } from "../types";
-import { dateKey, formatDateLabel, todayKey } from "../utils/date";
+import { dateKey, formatDateLabel } from "../utils/date";
+import { useToday } from "../composables/useToday";
 import { SYSTEM_PROMPT } from "../ai/prompt";
 import type { AiEvent, AiSettings } from "../ai/config";
 
@@ -22,14 +23,22 @@ let unlistenTodos: UnlistenFn | null = null;
 let unlistenFocus: UnlistenFn | null = null;
 let copyTimer: number | null = null;
 
-const today = todayKey();
-const dateLabel = computed(() => formatDateLabel(today));
+const today = useToday();
+const dateLabel = computed(() => formatDateLabel(today.value));
 
 const todayDone = computed(() =>
   todos.value
-    .filter((t) => t.completed_at && dateKey(t.completed_at) === today)
+    .filter((t) => t.completed_at && dateKey(t.completed_at) === today.value)
     .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
 );
+
+watch(today, () => {
+  if (running.value) return;
+  summary.value = "";
+  error.value = "";
+  copied.value = false;
+  editing.value = false;
+});
 
 const canGenerate = computed(
   () => hasKey.value === true && todayDone.value.length > 0

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Todo } from "../types";
-import { dateKey, formatDateLabel, todayKey } from "../utils/date";
+import { dateKey, formatDateLabel } from "../utils/date";
+import { useToday } from "../composables/useToday";
 import TopNav from "./TopNav.vue";
 import EmptyState from "./EmptyState.vue";
 import StatsBar from "./StatsBar.vue";
@@ -19,7 +20,7 @@ const reduceMotion = window.matchMedia(
   "(prefers-reduced-motion: reduce)"
 ).matches;
 
-const today = todayKey();
+const today = useToday();
 const pending = computed(() => todos.value.filter((t) => !t.done));
 const hasPending = computed(() => pending.value.length > 0);
 
@@ -28,12 +29,16 @@ const calendarOpen = ref(false);
 const showingHistory = computed(() => selectedDate.value !== null);
 
 function isToday(ms?: number | null): boolean {
-  return !!ms && dateKey(ms) === today;
+  return !!ms && dateKey(ms) === today.value;
 }
 
 const dateLabel = computed(() =>
-  formatDateLabel(selectedDate.value ?? today)
+  formatDateLabel(selectedDate.value ?? today.value)
 );
+
+watch(today, (_next, prev) => {
+  if (selectedDate.value === prev) selectedDate.value = null;
+});
 
 const todayPending = computed(
   () => todos.value.filter((t) => !t.done && isToday(t.created_at)).length
@@ -69,12 +74,12 @@ function toggleCalendar() {
 
 function selectDate(key: string) {
   calendarOpen.value = false;
-  selectedDate.value = key === today ? null : key;
+  selectedDate.value = key === today.value ? null : key;
 }
 
 function showTodayDone() {
   calendarOpen.value = false;
-  selectedDate.value = today;
+  selectedDate.value = today.value;
 }
 
 function backToToday() {
