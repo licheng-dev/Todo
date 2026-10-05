@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "朝暮",
+  "productName": "zhaomu",
   "version": "1.0.1",
-  "identifier": "com.licheng.todo",
+  "identifier": "com.licheng.zhaomu",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
