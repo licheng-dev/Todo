@@ -218,6 +218,10 @@ async function remove(id: number) {
   await invoke("delete_todo", { id });
 }
 
+async function restore(item: Todo) {
+  await invoke("toggle_todo", { id: item.id, done: false });
+}
+
 async function toggle(item: Todo) {
   if (item.done) {
     await invoke("toggle_todo", { id: item.id, done: false });
@@ -288,7 +292,13 @@ onUnmounted(() => {
                 <span>返回今天待办</span>
               </button>
             </div>
-            <TodoList v-if="selectedDone.length" :items="selectedDone" readonly />
+            <TodoList
+              v-if="selectedDone.length"
+              :items="selectedDone"
+              readonly
+              revertable
+              @revert="restore"
+            />
             <p v-else class="history-empty">该日期没有已办</p>
           </div>
 

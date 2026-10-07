@@ -2,12 +2,14 @@
 import { ref } from "vue";
 import type { Todo } from "../types";
 
-withDefaults(defineProps<{ items: Todo[]; readonly?: boolean }>(), {
+withDefaults(defineProps<{ items: Todo[]; readonly?: boolean; revertable?: boolean }>(), {
   readonly: false,
+  revertable: false,
 });
 defineEmits<{
   (e: "toggle", item: Todo): void;
   (e: "remove", id: number): void;
+  (e: "revert", item: Todo): void;
 }>();
 
 const listEl = ref<HTMLElement | null>(null);
@@ -40,6 +42,18 @@ defineExpose({ listEl });
         @click="$emit('remove', todo.id)"
       >
         ×
+      </button>
+      <button
+        v-if="revertable"
+        class="revert"
+        type="button"
+        aria-label="回退"
+        @click="$emit('revert', todo)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polyline points="1 4 1 10 7 10" />
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+        </svg>
       </button>
     </li>
   </ul>
@@ -140,9 +154,43 @@ defineExpose({ listEl });
   opacity: 1;
 }
 
+.revert {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 180ms ease, color 180ms ease;
+}
+
+.revert svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card:hover .revert {
+  opacity: 0.7;
+}
+
+.revert:hover {
+  color: var(--gold);
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .check,
-  .remove {
+  .remove,
+  .revert {
     transition: none;
   }
 }
