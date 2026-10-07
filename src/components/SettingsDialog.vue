@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { computed, onMounted, onUnmounted, ref } from "vue";
@@ -9,6 +8,8 @@ import {
   type AiProvider,
   type AiSettings,
 } from "../ai/config";
+
+const emit = defineEmits<{ (e: "close"): void }>();
 
 interface ShortcutSetting {
   code: string;
@@ -20,6 +21,7 @@ interface ShortcutSetting {
 
 const alwaysOnTop = ref(false);
 const busy = ref(false);
+const loaded = ref(false);
 
 const addShortcut = ref<ShortcutSetting | null>(null);
 const recording = ref(false);
@@ -150,8 +152,8 @@ function onKeyDown(event: KeyboardEvent) {
   });
 }
 
-async function close() {
-  await getCurrentWindow().hide();
+function close() {
+  emit("close");
 }
 
 async function saveReminder() {
@@ -243,6 +245,7 @@ onMounted(async () => {
   aiProvider.value = ai.provider;
   aiApiKey.value = ai.api_key;
   version.value = await getVersion();
+  loaded.value = true;
   window.addEventListener("keydown", onKeyDown, true);
 });
 
@@ -254,21 +257,31 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="settings" data-tauri-drag-region="deep">
+  <div class="settings">
     <div class="glass">
-      <h2>设置</h2>
-
-      <div class="row">
-        <span class="label">窗口置顶</span>
-        <button
-          class="toggle"
-          :class="{ on: alwaysOnTop }"
-          @click="toggle"
-          :disabled="busy"
-        >
-          <span class="knob"></span>
+      <header class="head">
+        <button class="head-back" type="button" aria-label="返回" @click="close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14.5 6.5 9 12l5.5 5.5" />
+          </svg>
+          <span>返回</span>
         </button>
-      </div>
+        <h2>设置</h2>
+        <span class="head-spacer"></span>
+      </header>
+
+      <template v-if="loaded">
+        <div class="row">
+          <span class="label">窗口置顶</span>
+          <button
+            class="toggle"
+            :class="{ on: alwaysOnTop }"
+            @click="toggle"
+            :disabled="busy"
+          >
+            <span class="knob"></span>
+          </button>
+        </div>
 
       <div class="shortcut">
         <div class="row">
@@ -402,34 +415,24 @@ onUnmounted(() => {
           </span>
         </div>
       </div>
-
-      <button class="close-btn" @click="close">关闭</button>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
 .settings {
-  width: 100vw;
-  height: 90vh;
-  margin: 5vh 0;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  border-radius: var(--page-radius);
-  overflow: hidden;
-  background-color: var(--bg-a);
-  background-image: url("../assets/bg.png");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  color: var(--ink);
+  flex-direction: column;
 }
 
 .glass {
   width: 100%;
-  max-height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px 24px;
   display: flex;
@@ -455,6 +458,63 @@ h2 {
   font-size: 16px;
   font-weight: 600;
   text-align: center;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.head-spacer {
+  display: block;
+}
+
+.head-back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.16)
+  );
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  box-shadow:
+    0 12px 28px -22px rgba(201, 190, 178, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  color: var(--ink-4);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.head-back:hover {
+  color: var(--gold);
+  box-shadow:
+    0 16px 30px -20px rgba(201, 190, 178, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.head-back:active {
+  transform: scale(0.97);
+}
+
+.head-back svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .row {
@@ -550,6 +610,7 @@ h2 {
 }
 
 .divider {
+  flex-shrink: 0;
   height: 1px;
   background: rgba(150, 145, 140, 0.22);
 }
@@ -703,17 +764,5 @@ h2 {
 .update-btn:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-.close-btn {
-  align-self: center;
-  padding: 7px 24px;
-  border-radius: 8px;
-  border: none;
-  background: rgba(128, 128, 128, 0.15);
-  color: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  margin-top: 4px;
 }
 </style>

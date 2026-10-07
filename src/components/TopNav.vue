@@ -1,4 +1,5 @@
 <script setup lang="ts">
+withDefaults(defineProps<{ hideActions?: boolean }>(), { hideActions: false });
 defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
 </script>
 
@@ -9,7 +10,7 @@ defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
       <span class="brand-line"></span>
     </div>
 
-    <div class="actions">
+    <div v-if="!hideActions" class="actions">
       <button class="more" type="button" aria-label="AI 日报" @click="$emit('ai')">
         <svg class="more-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path

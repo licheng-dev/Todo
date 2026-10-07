@@ -249,22 +249,6 @@ fn unhide_app(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn unhide_app(_app: &AppHandle) {}
 
-#[tauri::command]
-fn open_settings(app: AppHandle) {
-    unhide_app(&app);
-    let w = ensure_popup(&app, "settings", "设置", 360.0, 640.0);
-    let _ = w.show();
-    let _ = w.set_focus();
-}
-
-#[tauri::command]
-fn open_ai(app: AppHandle) {
-    unhide_app(&app);
-    let w = ensure_popup(&app, "ai", "AI 日报", 480.0, 560.0);
-    let _ = w.show();
-    let _ = w.set_focus();
-}
-
 fn provider_config(provider: &str) -> Result<(&'static str, &'static str), String> {
     match provider {
         "deepseek" => Ok(("https://api.deepseek.com/chat/completions", "deepseek-chat")),
@@ -309,7 +293,7 @@ fn emit_sse_line(app: &AppHandle, line: &str) {
         if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
             if !content.is_empty() {
                 let _ = app.emit_to(
-                    "ai",
+                    "main",
                     "ai-summary",
                     AiEvent::Chunk {
                         text: content.to_string(),
@@ -383,7 +367,7 @@ async fn stream_summary(
         emit_sse_line(app, &buf);
     }
 
-    let _ = app.emit_to("ai", "ai-summary", AiEvent::Done);
+    let _ = app.emit_to("main", "ai-summary", AiEvent::Done);
     Ok(())
 }
 
@@ -441,7 +425,7 @@ fn start_summary(
         let result =
             stream_summary(&handle, url, model, &api_key, &system_prompt, &user_prompt).await;
         if let Err(message) = result {
-            let _ = handle.emit_to("ai", "ai-summary", AiEvent::Error { message });
+            let _ = handle.emit_to("main", "ai-summary", AiEvent::Error { message });
         }
         handle
             .state::<AppState>()
@@ -927,8 +911,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            open_settings,
-            open_ai,
             get_always_on_top,
             set_always_on_top,
             get_add_shortcut,

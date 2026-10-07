@@ -10,6 +10,11 @@ import EmptyState from "./EmptyState.vue";
 import StatsBar from "./StatsBar.vue";
 import TodoList from "./TodoList.vue";
 import CalendarPopup from "./CalendarPopup.vue";
+import SettingsDialog from "./SettingsDialog.vue";
+import AiSummary from "./AiSummary.vue";
+
+const view = ref<"today" | "settings" | "ai">("today");
+const aiSeen = ref(false);
 
 const todos = ref<Todo[]>([]);
 const listComp = ref<InstanceType<typeof TodoList> | null>(null);
@@ -260,12 +265,15 @@ async function toggle(item: Todo) {
   await invoke("toggle_todo", { id: item.id, done: true });
 }
 
-async function openSettings() {
-  await invoke("open_settings");
+function openSettings() {
+  calendarOpen.value = false;
+  view.value = "settings";
 }
 
-async function openAi() {
-  await invoke("open_ai");
+function openAi() {
+  calendarOpen.value = false;
+  aiSeen.value = true;
+  view.value = "ai";
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -295,12 +303,24 @@ onUnmounted(() => {
 
 <template>
   <div class="page" data-tauri-drag-region="deep">
-    <TopNav @more="openSettings" @ai="openAi" />
+    <TopNav
+      :hide-actions="view !== 'today'"
+      @more="openSettings"
+      @ai="openAi"
+    />
 
     <main class="stage">
       <div class="stage-inner">
         <Transition name="swap">
-          <div v-if="showingHistory" key="history" class="view">
+          <div v-if="view === 'settings'" key="settings" class="panel">
+            <SettingsDialog @close="view = 'today'" />
+          </div>
+
+          <div
+            v-else-if="view === 'today' && showingHistory"
+            key="history"
+            class="view"
+          >
             <div class="history-head">
               <button class="back" type="button" @click="backToToday">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -319,7 +339,7 @@ onUnmounted(() => {
             <p v-else class="history-empty">该日期没有已办</p>
           </div>
 
-          <div v-else key="today" class="view">
+          <div v-else-if="view === 'today'" key="today" class="view">
             <TodoList
               v-if="hasPending"
               ref="listComp"
@@ -334,10 +354,19 @@ onUnmounted(() => {
             </p>
           </div>
         </Transition>
+
+        <div v-if="aiSeen" v-show="view === 'ai'" class="panel">
+          <AiSummary
+            :active="view === 'ai'"
+            @close="view = 'today'"
+            @open-settings="view = 'settings'"
+          />
+        </div>
       </div>
     </main>
 
     <StatsBar
+      v-if="view === 'today'"
       ref="statsComp"
       :date="dateLabel"
       :mode="showingHistory ? 'history' : 'today'"
@@ -393,7 +422,7 @@ onUnmounted(() => {
 .stage {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -401,6 +430,7 @@ onUnmounted(() => {
 .stage-inner {
   position: relative;
   flex: 1;
+  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -410,9 +440,21 @@ onUnmounted(() => {
 .view {
   width: 100%;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding: clamp(12px, 3vh, 28px) var(--pad-x) clamp(20px, 6vh, 48px);
+}
+
+.panel {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: clamp(12px, 3vh, 28px) var(--pad-x) clamp(20px, 6vh, 48px);
 }
 

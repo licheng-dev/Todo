@@ -2,12 +2,17 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Todo } from "../types";
 import { dateKey, formatDateLabel } from "../utils/date";
 import { useToday } from "../composables/useToday";
 import { SYSTEM_PROMPT } from "../ai/prompt";
 import type { AiEvent, AiSettings } from "../ai/config";
+
+const props = defineProps<{ active: boolean }>();
+const emit = defineEmits<{
+  (e: "close"): void;
+  (e: "open-settings"): void;
+}>();
 
 const todos = ref<Todo[]>([]);
 const summary = ref("");
@@ -20,7 +25,6 @@ const bodyEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 let unlisten: UnlistenFn | null = null;
 let unlistenTodos: UnlistenFn | null = null;
-let unlistenFocus: UnlistenFn | null = null;
 let copyTimer: number | null = null;
 
 const today = useToday();
@@ -114,16 +118,17 @@ async function copy() {
 }
 
 async function openSettings() {
-  await invoke("open_settings");
+  emit("open-settings");
 }
 
-async function close() {
-  await getCurrentWindow().hide();
+function close() {
+  emit("close");
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  if (!props.active) return;
   if (event.key === "Escape") {
-    void close();
+    close();
   }
 }
 
@@ -144,32 +149,42 @@ onMounted(async () => {
   unlistenTodos = await listen<Todo[]>("todos-changed", (event) => {
     todos.value = event.payload;
   });
-  unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload }) => {
-    if (payload) {
+  window.addEventListener("keydown", onKeyDown);
+});
+
+watch(
+  () => props.active,
+  (active) => {
+    if (active) {
       void loadTodos();
       void loadAiSettings();
     }
-  });
-  window.addEventListener("keydown", onKeyDown);
-});
+  }
+);
 
 onUnmounted(() => {
   unlisten?.();
   unlistenTodos?.();
-  unlistenFocus?.();
   window.removeEventListener("keydown", onKeyDown);
   if (copyTimer) window.clearTimeout(copyTimer);
 });
 </script>
 
 <template>
-  <div class="ai" data-tauri-drag-region="deep">
+  <div class="ai">
     <div class="glass">
-      <header class="head" data-tauri-drag-region="deep">
-        <div class="titles" data-tauri-drag-region="deep">
+      <header class="head">
+        <button class="head-back" type="button" aria-label="返回" @click="close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14.5 6.5 9 12l5.5 5.5" />
+          </svg>
+          <span>返回</span>
+        </button>
+        <div class="titles">
           <h2>AI 日报</h2>
           <span class="date">{{ dateLabel }}</span>
         </div>
+        <span class="head-spacer"></span>
       </header>
 
       <p class="meta">当日已办 {{ todayDone.length }} 条</p>
@@ -207,8 +222,6 @@ onUnmounted(() => {
       </section>
 
       <footer class="foot">
-        <button class="btn ghost" type="button" @click="close">关闭</button>
-
         <button v-if="running" class="btn ghost" type="button" @click="stop">停止</button>
 
         <template v-else-if="summary">
@@ -253,25 +266,17 @@ onUnmounted(() => {
 
 <style scoped>
 .ai {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  border-radius: var(--page-radius);
-  overflow: hidden;
-  background-color: var(--bg-a);
-  background-image: url("../assets/bg.png");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  color: var(--ink);
+  flex-direction: column;
 }
 
 .glass {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   padding: 18px 22px;
   display: flex;
   flex-direction: column;
@@ -292,21 +297,75 @@ onUnmounted(() => {
 }
 
 .head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.head-spacer {
+  display: block;
+}
+
+.head-back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.16)
+  );
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  box-shadow:
+    0 12px 28px -22px rgba(201, 190, 178, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  color: var(--ink-4);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.head-back:hover {
+  color: var(--gold);
+  box-shadow:
+    0 16px 30px -20px rgba(201, 190, 178, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.head-back:active {
+  transform: scale(0.97);
+}
+
+.head-back svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .titles {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 3px;
+  text-align: center;
 }
 
 h2 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  text-align: center;
 }
 
 .date {
