@@ -4,13 +4,17 @@ import { ref } from "vue";
 defineProps<{
   date: string;
   mode: "today" | "history";
+  leftover: number;
   pending: number;
   done: number;
+  filter: "all" | "today" | "leftover";
 }>();
 
 defineEmits<{
   (e: "date-click"): void;
   (e: "done-click"): void;
+  (e: "pending-click"): void;
+  (e: "leftover-click"): void;
 }>();
 
 const doneEl = ref<HTMLElement | null>(null);
@@ -41,12 +45,31 @@ defineExpose({ doneEl });
 
     <div class="group">
       <template v-if="mode === 'today'">
-        <div class="item">
+        <button
+          class="item stat-btn"
+          :class="{ active: filter === 'leftover' }"
+          type="button"
+          aria-label="筛选遗留待办"
+          @click="$emit('leftover-click')"
+        >
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="M12 7.5V12l3 2" />
+          </svg>
+          <span>遗留待办 {{ leftover }}</span>
+        </button>
+        <button
+          class="item stat-btn"
+          :class="{ active: filter === 'today' }"
+          type="button"
+          aria-label="筛选今日待办"
+          @click="$emit('pending-click')"
+        >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="8.5" />
           </svg>
-          <span>今日待办 {{ pending }}</span>
-        </div>
+          <span>当日待办 {{ pending }}</span>
+        </button>
         <button
           ref="doneEl"
           class="item stat-btn"
@@ -58,7 +81,7 @@ defineExpose({ doneEl });
             <circle cx="12" cy="12" r="8.5" />
             <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
           </svg>
-          <span>今日已办 {{ done }}</span>
+          <span>当日已办 {{ done }}</span>
         </button>
       </template>
       <div v-else class="item">
@@ -129,6 +152,14 @@ defineExpose({ doneEl });
 .date:hover,
 .stat-btn:hover {
   color: var(--gold);
+}
+
+.stat-btn.active {
+  color: var(--gold);
+}
+
+.stat-btn.active .icon {
+  stroke: var(--gold);
 }
 
 .date:hover .caret {

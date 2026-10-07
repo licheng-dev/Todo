@@ -21,7 +21,15 @@ const reduceMotion = window.matchMedia(
 ).matches;
 
 const today = useToday();
-const pending = computed(() => todos.value.filter((t) => !t.done));
+const filterMode = ref<"all" | "today" | "leftover">("all");
+const pending = computed(() =>
+  todos.value.filter((t) => {
+    if (t.done || isDeferred(t)) return false;
+    if (filterMode.value === "today") return isToday(t.created_at);
+    if (filterMode.value === "leftover") return !isToday(t.created_at);
+    return true;
+  })
+);
 const hasPending = computed(() => pending.value.length > 0);
 
 const selectedDate = ref<string | null>(null);
@@ -30,6 +38,10 @@ const showingHistory = computed(() => selectedDate.value !== null);
 
 function isToday(ms?: number | null): boolean {
   return !!ms && dateKey(ms) === today.value;
+}
+
+function isDeferred(t: Todo): boolean {
+  return !!t.defer_until && dateKey(t.defer_until) > today.value;
 }
 
 const dateLabel = computed(() =>
@@ -41,7 +53,10 @@ watch(today, (_next, prev) => {
 });
 
 const todayPending = computed(
-  () => todos.value.filter((t) => !t.done && isToday(t.created_at)).length
+  () => todos.value.filter((t) => !t.done && !isDeferred(t) && isToday(t.created_at)).length
+);
+const leftoverPending = computed(
+  () => todos.value.filter((t) => !t.done && !isDeferred(t) && !isToday(t.created_at)).length
 );
 const todayDone = computed(
   () => todos.value.filter((t) => isToday(t.completed_at)).length
@@ -72,19 +87,30 @@ function toggleCalendar() {
   calendarOpen.value = !calendarOpen.value;
 }
 
+function toggleTodayFilter() {
+  filterMode.value = filterMode.value === "today" ? "all" : "today";
+}
+
+function toggleLeftoverFilter() {
+  filterMode.value = filterMode.value === "leftover" ? "all" : "leftover";
+}
+
 function selectDate(key: string) {
   calendarOpen.value = false;
+  filterMode.value = "all";
   selectedDate.value = key === today.value ? null : key;
 }
 
 function showTodayDone() {
   calendarOpen.value = false;
+  filterMode.value = "all";
   selectedDate.value = today.value;
 }
 
 function backToToday() {
   selectedDate.value = null;
   calendarOpen.value = false;
+  filterMode.value = "all";
 }
 
 function getListEl(): HTMLElement | null {
@@ -274,7 +300,10 @@ onUnmounted(() => {
               @toggle="toggle"
               @remove="remove"
             />
-            <EmptyState v-else />
+            <EmptyState v-else-if="filterMode === 'all'" />
+            <p v-else class="filter-empty">
+              {{ filterMode === "leftover" ? "太棒了，没有遗留待办" : "太棒了，今天待办全部完成" }}
+            </p>
           </div>
         </Transition>
       </div>
@@ -284,10 +313,14 @@ onUnmounted(() => {
       ref="statsComp"
       :date="dateLabel"
       :mode="showingHistory ? 'history' : 'today'"
+      :leftover="leftoverPending"
       :pending="todayPending"
       :done="doneCount"
+      :filter="filterMode"
       @date-click="toggleCalendar"
       @done-click="showTodayDone"
+      @pending-click="toggleTodayFilter"
+      @leftover-click="toggleLeftoverFilter"
     />
 
     <button
@@ -416,6 +449,16 @@ onUnmounted(() => {
 
 .history-empty {
   margin: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  font-size: clamp(14px, 2.6vw, 18px);
+}
+
+.filter-empty {
+  margin: 40px 0 0 0;
   flex: 1;
   display: flex;
   align-items: center;

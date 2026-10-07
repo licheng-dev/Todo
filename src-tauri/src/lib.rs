@@ -1,5 +1,6 @@
 mod shortcut;
 
+use chrono::Local;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     fs,
@@ -23,6 +24,8 @@ pub struct Todo {
     created_at: u64,
     #[serde(default)]
     completed_at: Option<u64>,
+    #[serde(default)]
+    defer_until: Option<u64>,
 }
 
 fn now_ms() -> u64 {
@@ -84,6 +87,8 @@ struct AppSettings {
     add_shortcut: ShortcutSetting,
     ai_provider: String,
     ai_api_key: String,
+    reminder_enabled: bool,
+    reminder_time: String,
 }
 
 impl Default for AppSettings {
@@ -93,8 +98,23 @@ impl Default for AppSettings {
             add_shortcut: ShortcutSetting::default(),
             ai_provider: "deepseek".to_string(),
             ai_api_key: String::new(),
+            reminder_enabled: false,
+            reminder_time: "17:00".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ReminderSetting {
+    enabled: bool,
+    time: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct ReminderState {
+    snooze_until: Option<u64>,
+    dismissed_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +163,7 @@ enum AiEvent {
 
 pub struct AppState {
     settings: Mutex<AppSettings>,
+    reminder: Mutex<ReminderState>,
     summarizing: AtomicBool,
     cancel: AtomicBool,
 }
@@ -226,7 +247,7 @@ fn unhide_app(_app: &AppHandle) {}
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     unhide_app(&app);
-    let w = ensure_popup(&app, "settings", "设置", 360.0, 560.0);
+    let w = ensure_popup(&app, "settings", "设置", 360.0, 640.0);
     let _ = w.show();
     let _ = w.set_focus();
 }
@@ -558,6 +579,94 @@ fn minimize_window(app: AppHandle) {
     }
 }
 
+fn parse_hhmm(value: &str) -> Option<(u32, u32)> {
+    let (h, m) = value.split_once(':')?;
+    let h: u32 = h.parse().ok()?;
+    let m: u32 = m.parse().ok()?;
+    if h > 23 || m > 59 {
+        return None;
+    }
+    Some((h, m))
+}
+
+fn local_today() -> String {
+    Local::now().format("%Y-%m-%d").to_string()
+}
+
+fn start_of_tomorrow_ms() -> u64 {
+    let today = Local::now().date_naive();
+    let tomorrow = today.succ_opt().unwrap_or(today);
+    tomorrow
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| dt.and_local_timezone(Local).earliest())
+        .map(|dt| dt.timestamp_millis() as u64)
+        .unwrap_or_else(|| now_ms() + 24 * 60 * 60 * 1000)
+}
+
+fn is_active(todo: &Todo) -> bool {
+    !todo.done && todo.defer_until.map_or(true, |d| d <= now_ms())
+}
+
+fn reminder_pending_count(app: &AppHandle) -> usize {
+    let todos: Vec<Todo> = load_json(app, "todos.json");
+    todos.iter().filter(|t| is_active(t)).count()
+}
+
+fn hide_reminder_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("reminder") {
+        let _ = window.hide();
+    }
+}
+
+fn maybe_show_reminder(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let (enabled, time) = {
+        let settings = state.settings.lock().unwrap();
+        (settings.reminder_enabled, settings.reminder_time.clone())
+    };
+    if !enabled {
+        return;
+    }
+
+    if let Some(window) = app.get_webview_window("reminder") {
+        if window.is_visible().unwrap_or(false) {
+            return;
+        }
+    }
+
+    let Some((hour, minute)) = parse_hhmm(&time) else {
+        return;
+    };
+    let now = Local::now();
+    let Some(target) = now.date_naive().and_hms_opt(hour, minute, 0) else {
+        return;
+    };
+    if now.naive_local() < target {
+        return;
+    }
+
+    let today = local_today();
+    {
+        let rs = state.reminder.lock().unwrap();
+        if rs.dismissed_on.as_deref() == Some(today.as_str()) {
+            return;
+        }
+        if rs.snooze_until.is_some_and(|until| until > now_ms()) {
+            return;
+        }
+    }
+
+    if reminder_pending_count(app) == 0 {
+        return;
+    }
+
+    unhide_app(app);
+    let window = ensure_popup(app, "reminder", "待办提醒", 380.0, 280.0);
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit_to("reminder", "reminder-shown", ());
+}
+
 #[tauri::command]
 fn get_todos(app: AppHandle) -> Vec<Todo> {
     load_json(&app, "todos.json")
@@ -575,6 +684,7 @@ fn add_todo(app: AppHandle, text: String) -> Result<(), String> {
         done: false,
         created_at: now_ms(),
         completed_at: None,
+        defer_until: None,
     });
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);
@@ -596,6 +706,103 @@ fn toggle_todo(app: AppHandle, id: u64, done: bool) -> Result<(), String> {
     if let Some(item) = todos.iter_mut().find(|item| item.id == id) {
         item.done = done;
         item.completed_at = if done { Some(now_ms()) } else { None };
+        if done {
+            item.defer_until = None;
+        }
+    }
+    save_json(&app, "todos.json", &todos);
+    emit_todos(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_reminder_settings(state: tauri::State<AppState>) -> ReminderSetting {
+    let settings = state.settings.lock().unwrap();
+    ReminderSetting {
+        enabled: settings.reminder_enabled,
+        time: settings.reminder_time.clone(),
+    }
+}
+
+#[tauri::command]
+fn set_reminder_settings(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    enabled: bool,
+    time: String,
+) -> Result<(), String> {
+    if parse_hhmm(&time).is_none() {
+        return Err("时间格式无效，应为 HH:MM".to_string());
+    }
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.reminder_enabled = enabled;
+        settings.reminder_time = time;
+    }
+    save_json(&app, "settings.json", &*state.settings.lock().unwrap());
+
+    {
+        let mut rs = state.reminder.lock().unwrap();
+        rs.snooze_until = None;
+        rs.dismissed_on = None;
+    }
+    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
+
+    if !enabled {
+        hide_reminder_window(&app);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_reminder_pending_count(app: AppHandle) -> usize {
+    reminder_pending_count(&app)
+}
+
+#[tauri::command]
+fn snooze_reminder(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+    {
+        let mut rs = state.reminder.lock().unwrap();
+        rs.snooze_until = Some(now_ms() + 30 * 60 * 1000);
+    }
+    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_reminder_today(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+    {
+        let mut rs = state.reminder.lock().unwrap();
+        rs.dismissed_on = Some(local_today());
+    }
+    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
+    Ok(())
+}
+
+#[tauri::command]
+fn complete_all_pending(app: AppHandle) -> Result<(), String> {
+    let mut todos: Vec<Todo> = load_json(&app, "todos.json");
+    let now = now_ms();
+    for item in todos.iter_mut() {
+        if is_active(item) {
+            item.done = true;
+            item.completed_at = Some(now);
+            item.defer_until = None;
+        }
+    }
+    save_json(&app, "todos.json", &todos);
+    emit_todos(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn defer_all_pending_to_tomorrow(app: AppHandle) -> Result<(), String> {
+    let mut todos: Vec<Todo> = load_json(&app, "todos.json");
+    let target = start_of_tomorrow_ms();
+    for item in todos.iter_mut() {
+        if is_active(item) {
+            item.defer_until = Some(target);
+        }
     }
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);
@@ -616,14 +823,24 @@ pub fn run() {
         })
         .setup(|app| {
             let settings: AppSettings = load_json(app.handle(), "settings.json");
+            let reminder: ReminderState = load_json(app.handle(), "reminder_state.json");
 
             app.manage(AppState {
                 settings: Mutex::new(settings.clone()),
+                reminder: Mutex::new(reminder),
                 summarizing: AtomicBool::new(false),
                 cancel: AtomicBool::new(false),
             });
 
             apply_always_on_top(app.handle(), settings.always_on_top);
+
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(20));
+                    maybe_show_reminder(&handle);
+                });
+            }
 
             #[cfg(target_os = "macos")]
             {
@@ -672,6 +889,13 @@ pub fn run() {
             add_todo,
             delete_todo,
             toggle_todo,
+            get_reminder_settings,
+            set_reminder_settings,
+            get_reminder_pending_count,
+            snooze_reminder,
+            dismiss_reminder_today,
+            complete_all_pending,
+            defer_all_pending_to_tomorrow,
             get_ai_settings,
             set_ai_settings,
             start_summary,

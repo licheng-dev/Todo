@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all app windows",
-  "windows": ["main", "add-todo", "settings", "ai"],
+  "windows": ["main", "add-todo", "settings", "ai", "reminder"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -26,6 +26,10 @@ const recording = ref(false);
 const shortcutBusy = ref(false);
 const shortcutError = ref("");
 
+const reminderEnabled = ref(false);
+const reminderTime = ref("17:00");
+const reminderBusy = ref(false);
+
 const aiProvider = ref<AiProvider>(DEFAULT_PROVIDER);
 const aiApiKey = ref("");
 const aiBusy = ref(false);
@@ -149,6 +153,24 @@ async function close() {
   await getCurrentWindow().hide();
 }
 
+async function saveReminder() {
+  if (reminderBusy.value) return;
+  reminderBusy.value = true;
+  try {
+    await invoke("set_reminder_settings", {
+      enabled: reminderEnabled.value,
+      time: reminderTime.value,
+    });
+  } finally {
+    reminderBusy.value = false;
+  }
+}
+
+async function toggleReminder() {
+  reminderEnabled.value = !reminderEnabled.value;
+  await saveReminder();
+}
+
 async function saveAi() {
   if (aiBusy.value) return;
   aiBusy.value = true;
@@ -202,6 +224,11 @@ async function goDownload() {
 onMounted(async () => {
   alwaysOnTop.value = await invoke<boolean>("get_always_on_top");
   addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
+  const reminder = await invoke<{ enabled: boolean; time: string }>(
+    "get_reminder_settings"
+  );
+  reminderEnabled.value = reminder.enabled;
+  reminderTime.value = reminder.time;
   const ai = await invoke<AiSettings>("get_ai_settings");
   aiProvider.value = ai.provider;
   aiApiKey.value = ai.api_key;
@@ -254,6 +281,39 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
+      <div class="reminder">
+        <div class="row">
+          <span class="label">待办提醒</span>
+          <button
+            class="toggle"
+            :class="{ on: reminderEnabled }"
+            @click="toggleReminder"
+            :disabled="reminderBusy"
+          >
+            <span class="knob"></span>
+          </button>
+        </div>
+        <div v-if="reminderEnabled" class="row">
+          <span class="label">提醒时间</span>
+          <input
+            v-model="reminderTime"
+            class="time-input"
+            type="time"
+            :disabled="reminderBusy"
+            @change="saveReminder"
+          />
+        </div>
+        <p class="reminder-hint">
+          {{
+            reminderEnabled
+              ? "当天有待办时，会在设定时间弹出提醒"
+              : "开启后每天在设定时间提醒未完成的待办"
+          }}
+        </p>
+      </div>
+
+      <div class="divider"></div>
+
       <div class="ai">
         <div class="row">
           <span class="label">AI 提供商</span>
@@ -292,34 +352,35 @@ onUnmounted(() => {
       <div class="update">
         <div class="row">
           <span class="label">版本</span>
-          <span class="version">
-            <span
-              v-if="updateMessage"
-              class="update-status"
-              :class="{ error: updateState === 'error' }"
-            >
-              {{ updateMessage }}
+          <span class="version-group">
+            <span class="version">
+              <span
+                v-if="updateMessage"
+                class="update-status"
+                :class="{ error: updateState === 'error' }"
+              >
+                {{ updateMessage }}
+              </span>
+              v{{ version || "—" }}
             </span>
-            v{{ version || "—" }}
+            <button
+              v-if="updateState === 'available'"
+              class="download-btn"
+              @click="goDownload"
+            >
+              前往下载
+            </button>
+            <button
+              v-else
+              class="update-btn"
+              :disabled="updateState === 'checking'"
+              @click="checkUpdate"
+            >
+              检查更新
+            </button>
           </span>
         </div>
       </div>
-
-      <button
-        v-if="updateState === 'available'"
-        class="download-btn"
-        @click="goDownload"
-      >
-        前往下载
-      </button>
-      <button
-        v-else
-        class="update-btn"
-        :disabled="updateState === 'checking'"
-        @click="checkUpdate"
-      >
-        检查更新
-      </button>
 
       <button class="close-btn" @click="close">关闭</button>
     </div>
@@ -347,6 +408,8 @@ onUnmounted(() => {
 
 .glass {
   width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -470,6 +533,40 @@ h2 {
   background: rgba(150, 145, 140, 0.22);
 }
 
+.reminder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.time-input {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.time-input:focus {
+  border-color: var(--gold);
+}
+
+.time-input:disabled {
+  opacity: 0.6;
+}
+
+.reminder-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.55;
+}
+
 .ai {
   display: flex;
   flex-direction: column;
@@ -529,6 +626,19 @@ h2 {
   font-size: 13px;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
+}
+
+.version-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-group .update-btn,
+.version-group .download-btn {
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .update-status {

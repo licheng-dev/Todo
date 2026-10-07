@@ -172,7 +172,7 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <p class="meta">今日已办 {{ todayDone.length }} 条</p>
+      <p class="meta">当日已办 {{ todayDone.length }} 条</p>
 
       <p v-if="hasKey === false" class="notice">
         尚未配置 AI 密钥，点击

@@ -4,4 +4,5 @@ export interface Todo {
   done: boolean;
   created_at: number;
   completed_at: number | null;
+  defer_until: number | null;
 }
