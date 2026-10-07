@@ -4,14 +4,20 @@ set -euo pipefail
 VERSION="${1:-}"
 NOTES_FILE="${2:-}"
 
-if [[ -z "$VERSION" ]]; then
-  echo "用法: pnpm release <version> [release-notes.md]" >&2
-  echo "例如: pnpm release 1.0.5 release-notes.md" >&2
+if [[ -z "$VERSION" || -z "$NOTES_FILE" ]]; then
+  echo "用法: pnpm release <version> <release-notes.md>" >&2
+  echo "例如: pnpm release 1.0.6 release-notes.md" >&2
+  echo "（release-notes.md 需包含「更新亮点」等内容，用于 GitHub Release 说明）" >&2
   exit 1
 fi
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "版本号格式无效：$VERSION（应为 x.y.z）" >&2
+  exit 1
+fi
+
+if [[ ! -f "$NOTES_FILE" ]]; then
+  echo "未找到 release notes 文件：$NOTES_FILE" >&2
   exit 1
 fi
 
@@ -59,10 +65,6 @@ git push origin HEAD
 git push origin "$TAG"
 
 echo "==> 创建 GitHub Release"
-if [[ -n "$NOTES_FILE" && -f "$NOTES_FILE" ]]; then
-  gh release create "$TAG" --title "Todo $TAG" --notes-file "$NOTES_FILE" "$DMG"
-else
-  gh release create "$TAG" --title "Todo $TAG" --generate-notes "$DMG"
-fi
+gh release create "$TAG" --title "Todo $TAG" --notes-file "$NOTES_FILE" "$DMG"
 
 echo "==> 完成：已发布 $TAG"
