@@ -709,6 +709,11 @@ fn add_todo(app: AppHandle, text: String) -> Result<(), String> {
 #[tauri::command]
 fn delete_todo(app: AppHandle, id: u64) -> Result<(), String> {
     let mut todos: Vec<Todo> = load_json(&app, "todos.json");
+    if let Some(item) = todos.iter().find(|item| item.id == id) {
+        if item.pinned {
+            return Ok(());
+        }
+    }
     todos.retain(|item| item.id != id);
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);

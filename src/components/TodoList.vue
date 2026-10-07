@@ -51,7 +51,7 @@ defineExpose({ listEl });
         </svg>
       </button>
       <button
-        v-if="!readonly"
+        v-if="!readonly && !todo.pinned"
         class="remove"
         type="button"
         aria-label="删除"
