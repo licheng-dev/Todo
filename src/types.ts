@@ -5,4 +5,5 @@ export interface Todo {
   created_at: number;
   completed_at: number | null;
   defer_until: number | null;
+  pinned: boolean;
 }

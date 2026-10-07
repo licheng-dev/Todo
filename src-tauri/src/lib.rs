@@ -26,6 +26,8 @@ pub struct Todo {
     completed_at: Option<u64>,
     #[serde(default)]
     defer_until: Option<u64>,
+    #[serde(default)]
+    pinned: bool,
 }
 
 fn now_ms() -> u64 {
@@ -89,6 +91,7 @@ struct AppSettings {
     ai_api_key: String,
     reminder_enabled: bool,
     reminder_time: String,
+    reminder_include_pinned: bool,
 }
 
 impl Default for AppSettings {
@@ -100,6 +103,7 @@ impl Default for AppSettings {
             ai_api_key: String::new(),
             reminder_enabled: false,
             reminder_time: "17:00".to_string(),
+            reminder_include_pinned: true,
         }
     }
 }
@@ -108,6 +112,7 @@ impl Default for AppSettings {
 struct ReminderSetting {
     enabled: bool,
     time: String,
+    include_pinned: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -608,8 +613,17 @@ fn is_active(todo: &Todo) -> bool {
 }
 
 fn reminder_pending_count(app: &AppHandle) -> usize {
+    let include_pinned = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .reminder_include_pinned;
     let todos: Vec<Todo> = load_json(app, "todos.json");
-    todos.iter().filter(|t| is_active(t)).count()
+    todos
+        .iter()
+        .filter(|t| is_active(t) && (include_pinned || !t.pinned))
+        .count()
 }
 
 fn hide_reminder_window(app: &AppHandle) {
@@ -685,6 +699,7 @@ fn add_todo(app: AppHandle, text: String) -> Result<(), String> {
         created_at: now_ms(),
         completed_at: None,
         defer_until: None,
+        pinned: false,
     });
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);
@@ -704,9 +719,28 @@ fn delete_todo(app: AppHandle, id: u64) -> Result<(), String> {
 fn toggle_todo(app: AppHandle, id: u64, done: bool) -> Result<(), String> {
     let mut todos: Vec<Todo> = load_json(&app, "todos.json");
     if let Some(item) = todos.iter_mut().find(|item| item.id == id) {
+        if item.pinned && done {
+            return Ok(());
+        }
         item.done = done;
         item.completed_at = if done { Some(now_ms()) } else { None };
         if done {
+            item.defer_until = None;
+        }
+    }
+    save_json(&app, "todos.json", &todos);
+    emit_todos(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_todo_pinned(app: AppHandle, id: u64, pinned: bool) -> Result<(), String> {
+    let mut todos: Vec<Todo> = load_json(&app, "todos.json");
+    if let Some(item) = todos.iter_mut().find(|item| item.id == id) {
+        item.pinned = pinned;
+        if pinned {
+            item.done = false;
+            item.completed_at = None;
             item.defer_until = None;
         }
     }
@@ -721,6 +755,7 @@ fn get_reminder_settings(state: tauri::State<AppState>) -> ReminderSetting {
     ReminderSetting {
         enabled: settings.reminder_enabled,
         time: settings.reminder_time.clone(),
+        include_pinned: settings.reminder_include_pinned,
     }
 }
 
@@ -730,6 +765,7 @@ fn set_reminder_settings(
     state: tauri::State<AppState>,
     enabled: bool,
     time: String,
+    include_pinned: bool,
 ) -> Result<(), String> {
     if parse_hhmm(&time).is_none() {
         return Err("时间格式无效，应为 HH:MM".to_string());
@@ -738,6 +774,7 @@ fn set_reminder_settings(
         let mut settings = state.settings.lock().unwrap();
         settings.reminder_enabled = enabled;
         settings.reminder_time = time;
+        settings.reminder_include_pinned = include_pinned;
     }
     save_json(&app, "settings.json", &*state.settings.lock().unwrap());
 
@@ -780,11 +817,11 @@ fn dismiss_reminder_today(app: AppHandle, state: tauri::State<AppState>) -> Resu
 }
 
 #[tauri::command]
-fn complete_all_pending(app: AppHandle) -> Result<(), String> {
+fn complete_all_pending(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
     let mut todos: Vec<Todo> = load_json(&app, "todos.json");
     let now = now_ms();
     for item in todos.iter_mut() {
-        if is_active(item) {
+        if is_active(item) && !item.pinned {
             item.done = true;
             item.completed_at = Some(now);
             item.defer_until = None;
@@ -792,6 +829,14 @@ fn complete_all_pending(app: AppHandle) -> Result<(), String> {
     }
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);
+
+    // Pinned todos can't be completed, so suppress the reminder for the rest
+    // of the day to avoid it re-firing immediately.
+    {
+        let mut rs = state.reminder.lock().unwrap();
+        rs.dismissed_on = Some(local_today());
+    }
+    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
     Ok(())
 }
 
@@ -800,7 +845,7 @@ fn defer_all_pending_to_tomorrow(app: AppHandle) -> Result<(), String> {
     let mut todos: Vec<Todo> = load_json(&app, "todos.json");
     let target = start_of_tomorrow_ms();
     for item in todos.iter_mut() {
-        if is_active(item) {
+        if is_active(item) && !item.pinned {
             item.defer_until = Some(target);
         }
     }
@@ -889,6 +934,7 @@ pub fn run() {
             add_todo,
             delete_todo,
             toggle_todo,
+            set_todo_pinned,
             get_reminder_settings,
             set_reminder_settings,
             get_reminder_pending_count,

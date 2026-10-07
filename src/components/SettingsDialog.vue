@@ -28,6 +28,7 @@ const shortcutError = ref("");
 
 const reminderEnabled = ref(false);
 const reminderTime = ref("17:00");
+const reminderIncludePinned = ref(true);
 const reminderBusy = ref(false);
 
 const aiProvider = ref<AiProvider>(DEFAULT_PROVIDER);
@@ -160,6 +161,7 @@ async function saveReminder() {
     await invoke("set_reminder_settings", {
       enabled: reminderEnabled.value,
       time: reminderTime.value,
+      includePinned: reminderIncludePinned.value,
     });
   } finally {
     reminderBusy.value = false;
@@ -168,6 +170,11 @@ async function saveReminder() {
 
 async function toggleReminder() {
   reminderEnabled.value = !reminderEnabled.value;
+  await saveReminder();
+}
+
+async function toggleReminderIncludePinned() {
+  reminderIncludePinned.value = !reminderIncludePinned.value;
   await saveReminder();
 }
 
@@ -224,11 +231,14 @@ async function goDownload() {
 onMounted(async () => {
   alwaysOnTop.value = await invoke<boolean>("get_always_on_top");
   addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
-  const reminder = await invoke<{ enabled: boolean; time: string }>(
-    "get_reminder_settings"
-  );
+  const reminder = await invoke<{
+    enabled: boolean;
+    time: string;
+    include_pinned: boolean;
+  }>("get_reminder_settings");
   reminderEnabled.value = reminder.enabled;
   reminderTime.value = reminder.time;
+  reminderIncludePinned.value = reminder.include_pinned;
   const ai = await invoke<AiSettings>("get_ai_settings");
   aiProvider.value = ai.provider;
   aiApiKey.value = ai.api_key;
@@ -302,6 +312,17 @@ onUnmounted(() => {
             :disabled="reminderBusy"
             @change="saveReminder"
           />
+        </div>
+        <div v-if="reminderEnabled" class="row">
+          <span class="label">计入固定待办</span>
+          <button
+            class="toggle"
+            :class="{ on: reminderIncludePinned }"
+            @click="toggleReminderIncludePinned"
+            :disabled="reminderBusy"
+          >
+            <span class="knob"></span>
+          </button>
         </div>
         <p class="reminder-hint">
           {{

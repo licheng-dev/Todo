@@ -22,14 +22,20 @@ const reduceMotion = window.matchMedia(
 
 const today = useToday();
 const filterMode = ref<"all" | "today" | "leftover">("all");
-const pending = computed(() =>
-  todos.value.filter((t) => {
+const pending = computed(() => {
+  const list = todos.value.filter((t) => {
     if (t.done || isDeferred(t)) return false;
+    if (t.pinned) return true;
     if (filterMode.value === "today") return isToday(t.created_at);
     if (filterMode.value === "leftover") return !isToday(t.created_at);
     return true;
-  })
-);
+  });
+  return list.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    if (a.pinned) return b.created_at - a.created_at;
+    return 0;
+  });
+});
 const hasPending = computed(() => pending.value.length > 0);
 
 const selectedDate = ref<string | null>(null);
@@ -53,10 +59,16 @@ watch(today, (_next, prev) => {
 });
 
 const todayPending = computed(
-  () => todos.value.filter((t) => !t.done && !isDeferred(t) && isToday(t.created_at)).length
+  () =>
+    todos.value.filter(
+      (t) => !t.done && !isDeferred(t) && (t.pinned || isToday(t.created_at))
+    ).length
 );
 const leftoverPending = computed(
-  () => todos.value.filter((t) => !t.done && !isDeferred(t) && !isToday(t.created_at)).length
+  () =>
+    todos.value.filter(
+      (t) => !t.done && !isDeferred(t) && !t.pinned && !isToday(t.created_at)
+    ).length
 );
 const todayDone = computed(
   () => todos.value.filter((t) => isToday(t.completed_at)).length
@@ -222,7 +234,12 @@ async function restore(item: Todo) {
   await invoke("toggle_todo", { id: item.id, done: false });
 }
 
+async function togglePin(item: Todo) {
+  await invoke("set_todo_pinned", { id: item.id, pinned: !item.pinned });
+}
+
 async function toggle(item: Todo) {
+  if (item.pinned) return;
   if (item.done) {
     await invoke("toggle_todo", { id: item.id, done: false });
     return;
@@ -309,6 +326,7 @@ onUnmounted(() => {
               :items="pending"
               @toggle="toggle"
               @remove="remove"
+              @pin="togglePin"
             />
             <EmptyState v-else-if="filterMode === 'all'" />
             <p v-else class="filter-empty">

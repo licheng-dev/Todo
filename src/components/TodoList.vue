@@ -10,6 +10,7 @@ defineEmits<{
   (e: "toggle", item: Todo): void;
   (e: "remove", id: number): void;
   (e: "revert", item: Todo): void;
+  (e: "pin", item: Todo): void;
 }>();
 
 const listEl = ref<HTMLElement | null>(null);
@@ -29,11 +30,26 @@ defineExpose({ listEl });
         class="check"
         type="checkbox"
         :checked="todo.done"
-        :disabled="readonly"
+        :disabled="readonly || todo.pinned"
         aria-label="标记完成"
         @change="$emit('toggle', todo)"
       />
       <span class="text">{{ todo.text }}</span>
+      <button
+        v-if="!readonly"
+        class="pin"
+        :class="{ pinned: todo.pinned }"
+        type="button"
+        :aria-label="todo.pinned ? '取消固定' : '固定'"
+        @click="$emit('pin', todo)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 17v5" />
+          <path
+            d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+          />
+        </svg>
+      </button>
       <button
         v-if="!readonly"
         class="remove"
@@ -132,6 +148,58 @@ defineExpose({ listEl });
   user-select: text;
 }
 
+.check:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.check:disabled:hover {
+  border-color: #c9beb2;
+}
+
+.pin {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 180ms ease, color 180ms ease;
+}
+
+.pin svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card:hover .pin {
+  opacity: 0.7;
+}
+
+.pin:hover {
+  color: var(--gold);
+  opacity: 1;
+}
+
+.pin.pinned {
+  color: var(--gold);
+  opacity: 0.9;
+}
+
+.pin.pinned svg {
+  fill: currentColor;
+  fill-opacity: 0.18;
+}
+
 .remove {
   flex-shrink: 0;
   border: none;
@@ -190,7 +258,8 @@ defineExpose({ listEl });
 @media (prefers-reduced-motion: reduce) {
   .check,
   .remove,
-  .revert {
+  .revert,
+  .pin {
     transition: none;
   }
 }
