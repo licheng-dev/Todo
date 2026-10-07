@@ -53,10 +53,10 @@ onUnmounted(() => {
           转移至明天
         </button>
         <button class="btn" :disabled="busy" @click="run('snooze_reminder')">
-          半小时后再提醒
+          半小时后提醒
         </button>
         <button class="btn muted" :disabled="busy" @click="run('dismiss_reminder_today')">
-          关闭（今天不再提醒）
+          今日不再提醒
         </button>
       </div>
     </div>
