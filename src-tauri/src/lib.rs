@@ -10,6 +10,7 @@ use std::{
     },
     time::Duration,
 };
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(target_os = "macos")]
@@ -213,6 +214,7 @@ fn ensure_popup(app: &AppHandle, label: &str, title: &str, w: f64, h: f64) -> We
             .transparent(true)
             .shadow(true)
             .visible(false)
+            .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .build()
             .expect("failed to create popup window"),
     }
@@ -231,6 +233,7 @@ fn ensure_popup(app: &AppHandle, label: &str, title: &str, w: f64, h: f64) -> ta
             .transparent(true)
             .shadow(true)
             .visible(false)
+            .background_throttling(BackgroundThrottlingPolicy::Disabled)
             .build()
             .expect("failed to create popup window"),
     }
