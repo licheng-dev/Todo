@@ -26,7 +26,7 @@ const reduceMotion = window.matchMedia(
 ).matches;
 
 const today = useToday();
-const filterMode = ref<"all" | "today" | "leftover">("all");
+const filterMode = ref<"all" | "today" | "leftover" | "done">("all");
 const pending = computed(() => {
   const list = todos.value.filter((t) => {
     if (t.done || isDeferred(t)) return false;
@@ -75,9 +75,12 @@ const leftoverPending = computed(
       (t) => !t.done && !isDeferred(t) && !t.pinned && !isToday(t.created_at)
     ).length
 );
-const todayDone = computed(
-  () => todos.value.filter((t) => isToday(t.completed_at)).length
+const todayDoneList = computed(() =>
+  todos.value
+    .filter((t) => isToday(t.completed_at))
+    .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
 );
+const todayDone = computed(() => todayDoneList.value.length);
 
 const doneDays = computed(() => {
   const days = new Set<string>();
@@ -112,16 +115,14 @@ function toggleLeftoverFilter() {
   filterMode.value = filterMode.value === "leftover" ? "all" : "leftover";
 }
 
+function toggleDoneFilter() {
+  filterMode.value = filterMode.value === "done" ? "all" : "done";
+}
+
 function selectDate(key: string) {
   calendarOpen.value = false;
   filterMode.value = "all";
   selectedDate.value = key === today.value ? null : key;
-}
-
-function showTodayDone() {
-  calendarOpen.value = false;
-  filterMode.value = "all";
-  selectedDate.value = today.value;
 }
 
 function backToToday() {
@@ -341,7 +342,14 @@ onUnmounted(() => {
 
           <div v-else-if="view === 'today'" key="today" class="view">
             <TodoList
-              v-if="hasPending"
+              v-if="filterMode === 'done' && todayDoneList.length"
+              :items="todayDoneList"
+              readonly
+              revertable
+              @revert="restore"
+            />
+            <TodoList
+              v-else-if="filterMode !== 'done' && hasPending"
               ref="listComp"
               :items="pending"
               @toggle="toggle"
@@ -350,7 +358,13 @@ onUnmounted(() => {
             />
             <EmptyState v-else-if="filterMode === 'all'" />
             <p v-else class="filter-empty">
-              {{ filterMode === "leftover" ? "太棒了，没有遗留待办" : "太棒了，今天待办全部完成" }}
+              {{
+                filterMode === "leftover"
+                  ? "太棒了，没有遗留待办"
+                  : filterMode === "done"
+                    ? "今天还没有已办"
+                    : "太棒了，今天待办全部完成"
+              }}
             </p>
           </div>
         </Transition>
@@ -375,7 +389,7 @@ onUnmounted(() => {
       :done="doneCount"
       :filter="filterMode"
       @date-click="toggleCalendar"
-      @done-click="showTodayDone"
+      @done-click="toggleDoneFilter"
       @pending-click="toggleTodayFilter"
       @leftover-click="toggleLeftoverFilter"
     />

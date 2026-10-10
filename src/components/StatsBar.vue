@@ -7,7 +7,7 @@ defineProps<{
   leftover: number;
   pending: number;
   done: number;
-  filter: "all" | "today" | "leftover";
+  filter: "all" | "today" | "leftover" | "done";
 }>();
 
 defineEmits<{
@@ -73,8 +73,9 @@ defineExpose({ doneEl });
         <button
           ref="doneEl"
           class="item stat-btn"
+          :class="{ active: filter === 'done' }"
           type="button"
-          aria-label="查看今日已办"
+          aria-label="筛选当日已办"
           @click="$emit('done-click')"
         >
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
