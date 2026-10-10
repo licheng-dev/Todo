@@ -49,11 +49,13 @@ case "$(uname -m)" in
   arm64 | aarch64) ARCH=aarch64 ;;
   *) ARCH=x64 ;;
 esac
-DMG="src-tauri/target/release/bundle/dmg/zhaomu_${VERSION}_${ARCH}.dmg"
-if [[ ! -f "$DMG" ]]; then
-  echo "未找到打包产物：$DMG" >&2
+DMG_DIR="src-tauri/target/release/bundle/dmg"
+DMG="$(find "$DMG_DIR" -maxdepth 1 -type f -name "*_${VERSION}_${ARCH}.dmg" ! -name "rw.*" | head -1)"
+if [[ -z "$DMG" || ! -f "$DMG" ]]; then
+  echo "未找到打包产物（$DMG_DIR/*_${VERSION}_${ARCH}.dmg）" >&2
   exit 1
 fi
+echo "==> 打包产物：$DMG"
 
 echo "==> 提交并打标签 $TAG"
 git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
