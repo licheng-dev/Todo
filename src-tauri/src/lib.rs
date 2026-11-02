@@ -120,6 +120,7 @@ struct ReminderSetting {
 #[serde(default)]
 struct ReminderState {
     dismissed_on: Option<String>,
+    prompted_on: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -551,15 +552,10 @@ fn set_add_shortcut(
 
 #[tauri::command]
 fn hide_window(app: AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app.hide();
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-        }
+    // Hide the window instead of the whole application: hiding the app makes
+    // the next popup activate it and drag the main window back into view.
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
     }
 }
 
@@ -602,12 +598,6 @@ fn reminder_pending_count(app: &AppHandle) -> usize {
         .count()
 }
 
-fn hide_reminder_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("reminder") {
-        let _ = window.hide();
-    }
-}
-
 fn maybe_show_reminder(app: &AppHandle) {
     let state = app.state::<AppState>();
     let (enabled, time) = {
@@ -616,12 +606,6 @@ fn maybe_show_reminder(app: &AppHandle) {
     };
     if !enabled {
         return;
-    }
-
-    if let Some(window) = app.get_webview_window("reminder") {
-        if window.is_visible().unwrap_or(false) {
-            return;
-        }
     }
 
     let Some((hour, minute)) = parse_hhmm(&time) else {
@@ -638,7 +622,9 @@ fn maybe_show_reminder(app: &AppHandle) {
     let today = local_today();
     {
         let rs = state.reminder.lock().unwrap();
-        if rs.dismissed_on.as_deref() == Some(today.as_str()) {
+        if rs.dismissed_on.as_deref() == Some(today.as_str())
+            || rs.prompted_on.as_deref() == Some(today.as_str())
+        {
             return;
         }
     }
@@ -647,11 +633,19 @@ fn maybe_show_reminder(app: &AppHandle) {
         return;
     }
 
+    {
+        let mut rs = state.reminder.lock().unwrap();
+        rs.prompted_on = Some(today);
+    }
+    save_json(app, "reminder_state.json", &*state.reminder.lock().unwrap());
+
     unhide_app(app);
-    let window = ensure_popup(app, "reminder", "待办提醒", 380.0, 460.0);
-    let _ = window.show();
-    let _ = window.set_focus();
-    let _ = app.emit_to("reminder", "reminder-shown", ());
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit_to("main", "reminder-triggered", ());
 }
 
 #[tauri::command]
@@ -759,12 +753,10 @@ fn set_reminder_settings(
     {
         let mut rs = state.reminder.lock().unwrap();
         rs.dismissed_on = None;
+        rs.prompted_on = None;
     }
     save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
 
-    if !enabled {
-        hide_reminder_window(&app);
-    }
     Ok(())
 }
 
@@ -837,7 +829,6 @@ pub fn run() {
                         while let Ok(kind) = rx.recv() {
                             match kind {
                                 shortcut::ShortcutKind::AddTodo => {
-                                    unhide_app(&handle);
                                     let w = ensure_popup(&handle, "add-todo", "添加待办", 480.0, 260.0);
                                     let _ = w.show();
                                     let _ = w.set_focus();

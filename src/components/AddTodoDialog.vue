@@ -1,10 +1,32 @@
 <script setup lang="ts">
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { ref } from "vue";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { onMounted, onUnmounted, ref } from "vue";
 
 const draft = ref("");
 const busy = ref(false);
+const inputEl = ref<HTMLTextAreaElement | null>(null);
+let unlistenFocus: UnlistenFn | null = null;
+
+function focusInput() {
+  const el = inputEl.value;
+  if (!el) return;
+  el.focus();
+  const end = el.value.length;
+  el.setSelectionRange(end, end);
+}
+
+onMounted(async () => {
+  focusInput();
+  unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+    if (focused) focusInput();
+  });
+});
+
+onUnmounted(() => {
+  unlistenFocus?.();
+});
 
 async function submit() {
   const text = draft.value.trim();
@@ -25,15 +47,15 @@ async function cancel() {
 </script>
 
 <template>
-  <div class="dialog" data-tauri-drag-region="deep">
+  <div class="dialog">
     <div class="glass">
       <h2>添加待办</h2>
       <form @submit.prevent="submit">
         <textarea
+          ref="inputEl"
           v-model="draft"
           placeholder="输入待办内容…"
           rows="4"
-          autofocus
           :disabled="busy"
           @keydown.meta.enter.prevent="submit"
           @keydown.ctrl.enter.prevent="submit"

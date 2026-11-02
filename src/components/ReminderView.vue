@@ -1,35 +1,25 @@
 <script setup lang="ts">
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Todo } from "../types";
 import { dateKey } from "../utils/date";
 import { useToday } from "../composables/useToday";
 
-const count = ref(0);
-const todos = ref<Todo[]>([]);
-const busy = ref(false);
-let unlisten: UnlistenFn[] = [];
+const props = defineProps<{ active: boolean; todos: Todo[] }>();
+const emit = defineEmits<{ (e: "close"): void }>();
 
+const count = ref(0);
+const busy = ref(false);
 const today = useToday();
 
 const todayDone = computed(() =>
-  todos.value
+  props.todos
     .filter((t) => t.completed_at && dateKey(t.completed_at) === today.value)
     .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
 );
 
-async function refresh() {
-  const [pending, list] = await Promise.all([
-    invoke<number>("get_reminder_pending_count"),
-    invoke<Todo[]>("get_todos"),
-  ]);
-  count.value = pending;
-  todos.value = list;
-  if (pending === 0) {
-    await getCurrentWindow().hide();
-  }
+async function loadCount() {
+  count.value = await invoke<number>("get_reminder_pending_count");
 }
 
 async function dismiss() {
@@ -37,28 +27,52 @@ async function dismiss() {
   busy.value = true;
   try {
     await invoke("dismiss_reminder_today");
-    await getCurrentWindow().hide();
+    emit("close");
   } finally {
     busy.value = false;
   }
 }
 
-onMounted(async () => {
-  await refresh();
-  unlisten.push(await listen("reminder-shown", () => void refresh()));
-  unlisten.push(await listen("todos-changed", () => void refresh()));
+function close() {
+  emit("close");
+}
+
+function onKeyDown(event: KeyboardEvent) {
+  if (!props.active) return;
+  if (event.key === "Escape") close();
+}
+
+onMounted(() => {
+  void loadCount();
+  window.addEventListener("keydown", onKeyDown);
 });
 
 onUnmounted(() => {
-  unlisten.forEach((fn) => fn());
-  unlisten = [];
+  window.removeEventListener("keydown", onKeyDown);
 });
+
+watch(
+  () => props.active,
+  (active) => {
+    if (active) void loadCount();
+  }
+);
 </script>
 
 <template>
-  <div class="dialog" data-tauri-drag-region="deep">
+  <div class="reminder">
     <div class="glass">
-      <h2>待办提醒</h2>
+      <header class="head">
+        <button class="head-back" type="button" aria-label="返回" @click="close">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14.5 6.5 9 12l5.5 5.5" />
+          </svg>
+          <span>返回</span>
+        </button>
+        <h2>待办提醒</h2>
+        <span class="head-spacer"></span>
+      </header>
+
       <p class="message">
         还有 <span class="count">{{ count }}</span> 个待办未完成
       </p>
@@ -76,40 +90,33 @@ onUnmounted(() => {
         <p v-else class="done-empty">今日还没有已完成事项</p>
       </div>
 
-      <div class="actions">
-        <button class="btn muted" :disabled="busy" @click="dismiss">
+      <footer class="foot">
+        <button class="btn primary" type="button" :disabled="busy" @click="dismiss">
           今日不再提醒
         </button>
-      </div>
+      </footer>
     </div>
   </div>
 </template>
 
 <style scoped>
-.dialog {
-  width: 100vw;
-  height: 100vh;
+.reminder {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  border-radius: var(--page-radius);
-  overflow: hidden;
-  background-color: var(--bg-a);
-  background-image: url("../assets/bg.png");
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  color: var(--ink);
+  flex-direction: column;
 }
 
 .glass {
   width: 100%;
-  max-height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 20px 22px;
+  gap: 16px;
   border-radius: 16px;
   user-select: none;
   background: linear-gradient(
@@ -123,6 +130,63 @@ onUnmounted(() => {
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
   -webkit-backdrop-filter: blur(8px) saturate(130%);
   backdrop-filter: blur(8px) saturate(130%);
+}
+
+.head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.head-spacer {
+  display: block;
+}
+
+.head-back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.16)
+  );
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  backdrop-filter: blur(10px) saturate(130%);
+  box-shadow:
+    0 12px 28px -22px rgba(201, 190, 178, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  color: var(--ink-4);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.head-back:hover {
+  color: var(--gold);
+  box-shadow:
+    0 16px 30px -20px rgba(201, 190, 178, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.head-back:active {
+  transform: scale(0.97);
+}
+
+.head-back svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 h2 {
@@ -152,7 +216,6 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 0;
 }
 
 .done-title {
@@ -165,8 +228,6 @@ h2 {
   list-style: none;
   margin: 0;
   padding: 10px 12px;
-  max-height: 200px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -197,6 +258,8 @@ h2 {
 
 .txt {
   word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .done-empty {
@@ -206,7 +269,8 @@ h2 {
   opacity: 0.8;
 }
 
-.actions {
+.foot {
+  margin-top: auto;
   display: flex;
   justify-content: center;
 }
@@ -214,19 +278,23 @@ h2 {
 .btn {
   padding: 9px 20px;
   border-radius: 10px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  background: rgba(128, 128, 128, 0.12);
-  color: inherit;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.3;
   cursor: pointer;
-  transition: border-color 0.2s, color 0.2s, background 0.2s, transform 0.15s;
+  transition: filter 0.2s, transform 0.15s;
 }
 
-.btn:hover:not(:disabled) {
-  border-color: var(--gold);
-  color: var(--gold);
+.btn.primary {
+  border: none;
+  background: linear-gradient(135deg, #edcfa6, var(--gold));
+  color: #6b5433;
+  font-weight: 500;
+  box-shadow: 0 10px 20px -14px rgba(201, 160, 110, 0.9);
+}
+
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.03);
 }
 
 .btn:active:not(:disabled) {
@@ -236,16 +304,5 @@ h2 {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.btn.muted {
-  font-size: 12px;
-  opacity: 0.85;
-}
-
-@media (prefers-color-scheme: dark) {
-  .btn {
-    background: rgba(128, 128, 128, 0.2);
-  }
 }
 </style>

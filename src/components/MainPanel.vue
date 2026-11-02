@@ -12,14 +12,17 @@ import TodoList from "./TodoList.vue";
 import CalendarPopup from "./CalendarPopup.vue";
 import SettingsDialog from "./SettingsDialog.vue";
 import AiSummary from "./AiSummary.vue";
+import ReminderView from "./ReminderView.vue";
 
-const view = ref<"today" | "settings" | "ai">("today");
+const view = ref<"today" | "settings" | "ai" | "reminder">("today");
 const aiSeen = ref(false);
+const reminderSeen = ref(false);
 
 const todos = ref<Todo[]>([]);
 const listComp = ref<InstanceType<typeof TodoList> | null>(null);
 const statsComp = ref<InstanceType<typeof StatsBar> | null>(null);
 let unlisten: UnlistenFn | null = null;
+let unlistenReminder: UnlistenFn | null = null;
 
 const reduceMotion = window.matchMedia(
   "(prefers-reduced-motion: reduce)"
@@ -294,16 +297,22 @@ onMounted(async () => {
   unlisten = await listen<Todo[]>("todos-changed", (event) => {
     todos.value = event.payload;
   });
+  unlistenReminder = await listen("reminder-triggered", () => {
+    calendarOpen.value = false;
+    reminderSeen.value = true;
+    view.value = "reminder";
+  });
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeyDown);
   unlisten?.();
+  unlistenReminder?.();
 });
 </script>
 
 <template>
-  <div class="page" data-tauri-drag-region="deep">
+  <div class="page">
     <TopNav
       :hide-actions="view !== 'today'"
       @more="openSettings"
@@ -374,6 +383,14 @@ onUnmounted(() => {
             :active="view === 'ai'"
             @close="view = 'today'"
             @open-settings="view = 'settings'"
+          />
+        </div>
+
+        <div v-if="reminderSeen" v-show="view === 'reminder'" class="panel">
+          <ReminderView
+            :active="view === 'reminder'"
+            :todos="todos"
+            @close="view = 'today'"
           />
         </div>
       </div>

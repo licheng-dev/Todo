@@ -4,7 +4,7 @@ defineEmits<{ (e: "more"): void; (e: "ai"): void }>();
 </script>
 
 <template>
-  <header class="topnav">
+  <header class="topnav" data-tauri-drag-region>
     <div class="brand">
       <span class="brand-text">朝暮</span>
       <span class="brand-line"></span>

@@ -2,7 +2,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import MainPanel from "./components/MainPanel.vue";
 import AddTodoDialog from "./components/AddTodoDialog.vue";
-import ReminderDialog from "./components/ReminderDialog.vue";
 
 const label = getCurrentWindow().label;
 </script>
@@ -10,7 +9,6 @@ const label = getCurrentWindow().label;
 <template>
   <MainPanel v-if="label === 'main'" />
   <AddTodoDialog v-else-if="label === 'add-todo'" />
-  <ReminderDialog v-else-if="label === 'reminder'" />
   <div v-else class="fallback">
     <p>未知窗口: {{ label }}</p>
   </div>
