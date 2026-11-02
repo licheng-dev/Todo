@@ -59,7 +59,7 @@ echo "==> 打包产物：$DMG"
 
 echo "==> 提交并打标签 $TAG"
 git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-git commit -m "Release $TAG"
+git commit -m "chore(release): 发布 $TAG"
 git tag "$TAG"
 
 echo "==> 推送 main 与标签"
