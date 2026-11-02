@@ -119,7 +119,6 @@ struct ReminderSetting {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct ReminderState {
-    snooze_until: Option<u64>,
     dismissed_on: Option<String>,
 }
 
@@ -585,16 +584,6 @@ fn local_today() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }
 
-fn start_of_tomorrow_ms() -> u64 {
-    let today = Local::now().date_naive();
-    let tomorrow = today.succ_opt().unwrap_or(today);
-    tomorrow
-        .and_hms_opt(0, 0, 0)
-        .and_then(|dt| dt.and_local_timezone(Local).earliest())
-        .map(|dt| dt.timestamp_millis() as u64)
-        .unwrap_or_else(|| now_ms() + 24 * 60 * 60 * 1000)
-}
-
 fn is_active(todo: &Todo) -> bool {
     !todo.done && todo.defer_until.map_or(true, |d| d <= now_ms())
 }
@@ -652,9 +641,6 @@ fn maybe_show_reminder(app: &AppHandle) {
         if rs.dismissed_on.as_deref() == Some(today.as_str()) {
             return;
         }
-        if rs.snooze_until.is_some_and(|until| until > now_ms()) {
-            return;
-        }
     }
 
     if reminder_pending_count(app) == 0 {
@@ -662,7 +648,7 @@ fn maybe_show_reminder(app: &AppHandle) {
     }
 
     unhide_app(app);
-    let window = ensure_popup(app, "reminder", "待办提醒", 380.0, 280.0);
+    let window = ensure_popup(app, "reminder", "待办提醒", 380.0, 460.0);
     let _ = window.show();
     let _ = window.set_focus();
     let _ = app.emit_to("reminder", "reminder-shown", ());
@@ -772,7 +758,6 @@ fn set_reminder_settings(
 
     {
         let mut rs = state.reminder.lock().unwrap();
-        rs.snooze_until = None;
         rs.dismissed_on = None;
     }
     save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
@@ -789,60 +774,12 @@ fn get_reminder_pending_count(app: AppHandle) -> usize {
 }
 
 #[tauri::command]
-fn snooze_reminder(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
-    {
-        let mut rs = state.reminder.lock().unwrap();
-        rs.snooze_until = Some(now_ms() + 30 * 60 * 1000);
-    }
-    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
-    Ok(())
-}
-
-#[tauri::command]
 fn dismiss_reminder_today(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
     {
         let mut rs = state.reminder.lock().unwrap();
         rs.dismissed_on = Some(local_today());
     }
     save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
-    Ok(())
-}
-
-#[tauri::command]
-fn complete_all_pending(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
-    let mut todos: Vec<Todo> = load_json(&app, "todos.json");
-    let now = now_ms();
-    for item in todos.iter_mut() {
-        if is_active(item) && !item.pinned {
-            item.done = true;
-            item.completed_at = Some(now);
-            item.defer_until = None;
-        }
-    }
-    save_json(&app, "todos.json", &todos);
-    emit_todos(&app);
-
-    // Pinned todos can't be completed, so suppress the reminder for the rest
-    // of the day to avoid it re-firing immediately.
-    {
-        let mut rs = state.reminder.lock().unwrap();
-        rs.dismissed_on = Some(local_today());
-    }
-    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
-    Ok(())
-}
-
-#[tauri::command]
-fn defer_all_pending_to_tomorrow(app: AppHandle) -> Result<(), String> {
-    let mut todos: Vec<Todo> = load_json(&app, "todos.json");
-    let target = start_of_tomorrow_ms();
-    for item in todos.iter_mut() {
-        if is_active(item) && !item.pinned {
-            item.defer_until = Some(target);
-        }
-    }
-    save_json(&app, "todos.json", &todos);
-    emit_todos(&app);
     Ok(())
 }
 
@@ -928,10 +865,7 @@ pub fn run() {
             get_reminder_settings,
             set_reminder_settings,
             get_reminder_pending_count,
-            snooze_reminder,
             dismiss_reminder_today,
-            complete_all_pending,
-            defer_all_pending_to_tomorrow,
             get_ai_settings,
             set_ai_settings,
             start_summary,

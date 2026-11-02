@@ -2,24 +2,41 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import type { Todo } from "../types";
+import { dateKey } from "../utils/date";
+import { useToday } from "../composables/useToday";
 
 const count = ref(0);
+const todos = ref<Todo[]>([]);
 const busy = ref(false);
 let unlisten: UnlistenFn[] = [];
 
+const today = useToday();
+
+const todayDone = computed(() =>
+  todos.value
+    .filter((t) => t.completed_at && dateKey(t.completed_at) === today.value)
+    .sort((a, b) => (a.completed_at ?? 0) - (b.completed_at ?? 0))
+);
+
 async function refresh() {
-  count.value = await invoke<number>("get_reminder_pending_count");
-  if (count.value === 0) {
+  const [pending, list] = await Promise.all([
+    invoke<number>("get_reminder_pending_count"),
+    invoke<Todo[]>("get_todos"),
+  ]);
+  count.value = pending;
+  todos.value = list;
+  if (pending === 0) {
     await getCurrentWindow().hide();
   }
 }
 
-async function run(command: string) {
+async function dismiss() {
   if (busy.value) return;
   busy.value = true;
   try {
-    await invoke(command);
+    await invoke("dismiss_reminder_today");
     await getCurrentWindow().hide();
   } finally {
     busy.value = false;
@@ -45,17 +62,22 @@ onUnmounted(() => {
       <p class="message">
         还有 <span class="count">{{ count }}</span> 个待办未完成
       </p>
+
+      <div class="done">
+        <p class="done-title">今日已完成 {{ todayDone.length }} 条</p>
+        <ul v-if="todayDone.length" class="done-list">
+          <li v-for="item in todayDone" :key="item.id" class="done-item">
+            <svg class="tick" viewBox="0 0 24 24" aria-hidden="true">
+              <polyline points="4 12.5 9.5 18 20 6.5" />
+            </svg>
+            <span class="txt">{{ item.text }}</span>
+          </li>
+        </ul>
+        <p v-else class="done-empty">今日还没有已完成事项</p>
+      </div>
+
       <div class="actions">
-        <button class="btn primary" :disabled="busy" @click="run('complete_all_pending')">
-          全部已完成
-        </button>
-        <button class="btn" :disabled="busy" @click="run('defer_all_pending_to_tomorrow')">
-          转移至明天
-        </button>
-        <button class="btn" :disabled="busy" @click="run('snooze_reminder')">
-          半小时后提醒
-        </button>
-        <button class="btn muted" :disabled="busy" @click="run('dismiss_reminder_today')">
+        <button class="btn muted" :disabled="busy" @click="dismiss">
           今日不再提醒
         </button>
       </div>
@@ -83,10 +105,11 @@ onUnmounted(() => {
 
 .glass {
   width: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 22px 24px;
+  gap: 14px;
+  padding: 20px 22px;
   border-radius: 16px;
   user-select: none;
   background: linear-gradient(
@@ -125,14 +148,71 @@ h2 {
   padding: 0 2px;
 }
 
+.done {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.done-title {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.done-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.done-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-4);
+}
+
+.tick {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.txt {
+  word-break: break-word;
+}
+
+.done-empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  opacity: 0.8;
+}
+
 .actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  display: flex;
+  justify-content: center;
 }
 
 .btn {
-  padding: 10px 12px;
+  padding: 9px 20px;
   border-radius: 10px;
   border: 1px solid rgba(128, 128, 128, 0.25);
   background: rgba(128, 128, 128, 0.12);
@@ -156,20 +236,6 @@ h2 {
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.btn.primary {
-  border: none;
-  border-color: transparent;
-  background: linear-gradient(135deg, #edcfa6, var(--gold));
-  color: #6b5433;
-  font-weight: 500;
-  box-shadow: 0 10px 20px -14px rgba(201, 160, 110, 0.9);
-}
-
-.btn.primary:hover:not(:disabled) {
-  color: #6b5433;
-  filter: brightness(1.03);
 }
 
 .btn.muted {
