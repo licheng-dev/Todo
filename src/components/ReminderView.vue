@@ -10,6 +10,7 @@ const emit = defineEmits<{ (e: "close"): void }>();
 
 const count = ref(0);
 const busy = ref(false);
+const mode = ref<"fixed" | "interval">("fixed");
 const today = useToday();
 
 const todayDone = computed(() =>
@@ -20,6 +21,8 @@ const todayDone = computed(() =>
 
 async function loadCount() {
   count.value = await invoke<number>("get_reminder_pending_count");
+  const settings = await invoke<{ mode: string }>("get_reminder_settings");
+  mode.value = settings.mode === "interval" ? "interval" : "fixed";
 }
 
 async function dismiss() {
@@ -91,7 +94,21 @@ watch(
       </div>
 
       <footer class="foot">
-        <button class="btn primary" type="button" :disabled="busy" @click="dismiss">
+        <button
+          v-if="mode === 'interval'"
+          class="btn primary"
+          type="button"
+          @click="close"
+        >
+          知道了
+        </button>
+        <button
+          v-else
+          class="btn primary"
+          type="button"
+          :disabled="busy"
+          @click="dismiss"
+        >
           今日不再提醒
         </button>
       </footer>

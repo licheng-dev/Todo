@@ -28,10 +28,17 @@ const recording = ref(false);
 const shortcutBusy = ref(false);
 const shortcutError = ref("");
 
+type ReminderMode = "fixed" | "interval";
+
 const reminderEnabled = ref(false);
+const reminderMode = ref<ReminderMode>("fixed");
 const reminderTime = ref("17:00");
+const reminderIntervalStart = ref("09:00");
+const reminderIntervalEnd = ref("18:00");
+const reminderIntervalMinutes = ref(30);
 const reminderIncludePinned = ref(true);
 const reminderBusy = ref(false);
+const reminderError = ref("");
 
 const aiProvider = ref<AiProvider>(DEFAULT_PROVIDER);
 const aiApiKey = ref("");
@@ -159,15 +166,28 @@ function close() {
 async function saveReminder() {
   if (reminderBusy.value) return;
   reminderBusy.value = true;
+  reminderError.value = "";
   try {
     await invoke("set_reminder_settings", {
       enabled: reminderEnabled.value,
+      mode: reminderMode.value,
       time: reminderTime.value,
+      intervalStart: reminderIntervalStart.value,
+      intervalEnd: reminderIntervalEnd.value,
+      intervalMinutes: reminderIntervalMinutes.value,
       includePinned: reminderIncludePinned.value,
     });
+  } catch (err) {
+    reminderError.value = String(err);
   } finally {
     reminderBusy.value = false;
   }
+}
+
+function setReminderMode(mode: ReminderMode) {
+  if (reminderMode.value === mode) return;
+  reminderMode.value = mode;
+  void saveReminder();
 }
 
 async function toggleReminder() {
@@ -235,11 +255,19 @@ onMounted(async () => {
   addShortcut.value = await invoke<ShortcutSetting>("get_add_shortcut");
   const reminder = await invoke<{
     enabled: boolean;
+    mode: string;
     time: string;
+    interval_start: string;
+    interval_end: string;
+    interval_minutes: number;
     include_pinned: boolean;
   }>("get_reminder_settings");
   reminderEnabled.value = reminder.enabled;
+  reminderMode.value = reminder.mode === "interval" ? "interval" : "fixed";
   reminderTime.value = reminder.time;
+  reminderIntervalStart.value = reminder.interval_start;
+  reminderIntervalEnd.value = reminder.interval_end;
+  reminderIntervalMinutes.value = reminder.interval_minutes;
   reminderIncludePinned.value = reminder.include_pinned;
   const ai = await invoke<AiSettings>("get_ai_settings");
   aiProvider.value = ai.provider;
@@ -317,6 +345,33 @@ onUnmounted(() => {
           </button>
         </div>
         <div v-if="reminderEnabled" class="row">
+          <span class="label">提醒方式</span>
+          <div class="segmented" role="radiogroup" aria-label="提醒方式">
+            <button
+              class="seg"
+              :class="{ active: reminderMode === 'fixed' }"
+              type="button"
+              role="radio"
+              :aria-checked="reminderMode === 'fixed'"
+              :disabled="reminderBusy"
+              @click="setReminderMode('fixed')"
+            >
+              固定时间
+            </button>
+            <button
+              class="seg"
+              :class="{ active: reminderMode === 'interval' }"
+              type="button"
+              role="radio"
+              :aria-checked="reminderMode === 'interval'"
+              :disabled="reminderBusy"
+              @click="setReminderMode('interval')"
+            >
+              循环提醒
+            </button>
+          </div>
+        </div>
+        <div v-if="reminderEnabled && reminderMode === 'fixed'" class="row">
           <span class="label">提醒时间</span>
           <input
             v-model="reminderTime"
@@ -326,6 +381,43 @@ onUnmounted(() => {
             @change="saveReminder"
           />
         </div>
+        <template v-if="reminderEnabled && reminderMode === 'interval'">
+          <div class="row">
+            <span class="label">开始时间</span>
+            <input
+              v-model="reminderIntervalStart"
+              class="time-input"
+              type="time"
+              :disabled="reminderBusy"
+              @change="saveReminder"
+            />
+          </div>
+          <div class="row">
+            <span class="label">结束时间</span>
+            <input
+              v-model="reminderIntervalEnd"
+              class="time-input"
+              type="time"
+              :disabled="reminderBusy"
+              @change="saveReminder"
+            />
+          </div>
+          <div class="row">
+            <span class="label">提醒间隔</span>
+            <span class="interval-input">
+              <input
+                v-model.number="reminderIntervalMinutes"
+                class="time-input minutes-input"
+                type="number"
+                min="1"
+                max="1440"
+                :disabled="reminderBusy"
+                @change="saveReminder"
+              />
+              <span class="unit">分钟</span>
+            </span>
+          </div>
+        </template>
         <div v-if="reminderEnabled" class="row">
           <span class="label">计入固定待办</span>
           <button
@@ -337,11 +429,14 @@ onUnmounted(() => {
             <span class="knob"></span>
           </button>
         </div>
-        <p class="reminder-hint">
+        <p v-if="reminderError" class="shortcut-error">{{ reminderError }}</p>
+        <p v-else class="reminder-hint">
           {{
-            reminderEnabled
-              ? "当天有待办时，会在设定时间弹出提醒"
-              : "开启后每天在设定时间提醒未完成的待办"
+            !reminderEnabled
+              ? "开启后按设定方式提醒未完成的待办"
+              : reminderMode === "interval"
+                ? `当天有待办时，会在 ${reminderIntervalStart}–${reminderIntervalEnd} 内每隔 ${reminderIntervalMinutes} 分钟提醒`
+                : "当天有待办时，会在设定时间弹出提醒"
           }}
         </p>
       </div>
@@ -635,6 +730,58 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.12);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.seg {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-4);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.seg.active {
+  background: linear-gradient(
+    135deg,
+    rgba(232, 196, 155, 0.6),
+    rgba(232, 196, 155, 0.32)
+  );
+  color: #6b5433;
+  font-weight: 500;
+}
+
+.seg:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.interval-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.minutes-input {
+  width: 72px;
+}
+
+.unit {
+  font-size: 12px;
+  color: var(--ink-4);
 }
 
 .time-input {

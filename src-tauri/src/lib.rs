@@ -1,6 +1,6 @@
 mod shortcut;
 
-use chrono::Local;
+use chrono::{Local, Timelike};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     fs,
@@ -92,6 +92,10 @@ struct AppSettings {
     ai_api_key: String,
     reminder_enabled: bool,
     reminder_time: String,
+    reminder_mode: String,
+    reminder_interval_start: String,
+    reminder_interval_end: String,
+    reminder_interval_minutes: u32,
     reminder_include_pinned: bool,
 }
 
@@ -104,6 +108,10 @@ impl Default for AppSettings {
             ai_api_key: String::new(),
             reminder_enabled: false,
             reminder_time: "17:00".to_string(),
+            reminder_mode: "fixed".to_string(),
+            reminder_interval_start: "09:00".to_string(),
+            reminder_interval_end: "18:00".to_string(),
+            reminder_interval_minutes: 30,
             reminder_include_pinned: true,
         }
     }
@@ -112,7 +120,11 @@ impl Default for AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReminderSetting {
     enabled: bool,
+    mode: String,
     time: String,
+    interval_start: String,
+    interval_end: String,
+    interval_minutes: u32,
     include_pinned: bool,
 }
 
@@ -121,6 +133,7 @@ struct ReminderSetting {
 struct ReminderState {
     dismissed_on: Option<String>,
     prompted_on: Option<String>,
+    last_prompted_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -580,6 +593,27 @@ fn local_today() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }
 
+/// 循环提醒是否应当触发。
+///
+/// - `now_minutes` / `start_minutes` / `end_minutes`：当天 0 点起的分钟数
+/// - `last_prompted_at`：上次提醒的毫秒时间戳，`None` 表示今天还没提醒过
+fn interval_due(
+    now_minutes: u32,
+    start_minutes: u32,
+    end_minutes: u32,
+    last_prompted_at: Option<u64>,
+    now_ms: u64,
+    interval_minutes: u32,
+) -> bool {
+    if now_minutes < start_minutes || now_minutes > end_minutes {
+        return false;
+    }
+    match last_prompted_at {
+        Some(last) => now_ms.saturating_sub(last) >= interval_minutes as u64 * 60_000,
+        None => true,
+    }
+}
+
 fn is_active(todo: &Todo) -> bool {
     !todo.done && todo.defer_until.map_or(true, |d| d <= now_ms())
 }
@@ -598,20 +632,76 @@ fn reminder_pending_count(app: &AppHandle) -> usize {
         .count()
 }
 
+fn trigger_reminder(app: &AppHandle) {
+    unhide_app(app);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit_to("main", "reminder-triggered", ());
+}
+
 fn maybe_show_reminder(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let (enabled, time) = {
+    let (enabled, mode, time, interval_start, interval_end, interval_minutes) = {
         let settings = state.settings.lock().unwrap();
-        (settings.reminder_enabled, settings.reminder_time.clone())
+        (
+            settings.reminder_enabled,
+            settings.reminder_mode.clone(),
+            settings.reminder_time.clone(),
+            settings.reminder_interval_start.clone(),
+            settings.reminder_interval_end.clone(),
+            settings.reminder_interval_minutes,
+        )
     };
     if !enabled {
+        return;
+    }
+
+    let today = local_today();
+    if state.reminder.lock().unwrap().dismissed_on.as_deref() == Some(today.as_str()) {
+        return;
+    }
+
+    let now = Local::now();
+
+    if mode == "interval" {
+        let (Some((sh, sm)), Some((eh, em))) =
+            (parse_hhmm(&interval_start), parse_hhmm(&interval_end))
+        else {
+            return;
+        };
+        let current = now.hour() * 60 + now.minute();
+        let last = state.reminder.lock().unwrap().last_prompted_at;
+        let current_ms = now_ms();
+        if !interval_due(
+            current,
+            sh * 60 + sm,
+            eh * 60 + em,
+            last,
+            current_ms,
+            interval_minutes,
+        ) {
+            return;
+        }
+
+        if reminder_pending_count(app) == 0 {
+            return;
+        }
+
+        {
+            let mut rs = state.reminder.lock().unwrap();
+            rs.last_prompted_at = Some(current_ms);
+        }
+        save_json(app, "reminder_state.json", &*state.reminder.lock().unwrap());
+        trigger_reminder(app);
         return;
     }
 
     let Some((hour, minute)) = parse_hhmm(&time) else {
         return;
     };
-    let now = Local::now();
     let Some(target) = now.date_naive().and_hms_opt(hour, minute, 0) else {
         return;
     };
@@ -619,14 +709,8 @@ fn maybe_show_reminder(app: &AppHandle) {
         return;
     }
 
-    let today = local_today();
-    {
-        let rs = state.reminder.lock().unwrap();
-        if rs.dismissed_on.as_deref() == Some(today.as_str())
-            || rs.prompted_on.as_deref() == Some(today.as_str())
-        {
-            return;
-        }
+    if state.reminder.lock().unwrap().prompted_on.as_deref() == Some(today.as_str()) {
+        return;
     }
 
     if reminder_pending_count(app) == 0 {
@@ -638,14 +722,7 @@ fn maybe_show_reminder(app: &AppHandle) {
         rs.prompted_on = Some(today);
     }
     save_json(app, "reminder_state.json", &*state.reminder.lock().unwrap());
-
-    unhide_app(app);
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
-    let _ = app.emit_to("main", "reminder-triggered", ());
+    trigger_reminder(app);
 }
 
 #[tauri::command]
@@ -726,7 +803,11 @@ fn get_reminder_settings(state: tauri::State<AppState>) -> ReminderSetting {
     let settings = state.settings.lock().unwrap();
     ReminderSetting {
         enabled: settings.reminder_enabled,
+        mode: settings.reminder_mode.clone(),
         time: settings.reminder_time.clone(),
+        interval_start: settings.reminder_interval_start.clone(),
+        interval_end: settings.reminder_interval_end.clone(),
+        interval_minutes: settings.reminder_interval_minutes,
         include_pinned: settings.reminder_include_pinned,
     }
 }
@@ -736,26 +817,51 @@ fn set_reminder_settings(
     app: AppHandle,
     state: tauri::State<AppState>,
     enabled: bool,
+    mode: String,
     time: String,
+    interval_start: String,
+    interval_end: String,
+    interval_minutes: u32,
     include_pinned: bool,
 ) -> Result<(), String> {
+    if mode != "fixed" && mode != "interval" {
+        return Err("提醒方式无效".to_string());
+    }
     if parse_hhmm(&time).is_none() {
         return Err("时间格式无效，应为 HH:MM".to_string());
+    }
+    if mode == "interval" {
+        let Some((start_h, start_m)) = parse_hhmm(&interval_start) else {
+            return Err("开始时间格式无效，应为 HH:MM".to_string());
+        };
+        let Some((end_h, end_m)) = parse_hhmm(&interval_end) else {
+            return Err("结束时间格式无效，应为 HH:MM".to_string());
+        };
+        if start_h * 60 + start_m >= end_h * 60 + end_m {
+            return Err("结束时间必须晚于开始时间".to_string());
+        }
+        if interval_minutes == 0 || interval_minutes > 1440 {
+            return Err("提醒间隔需在 1 到 1440 分钟之间".to_string());
+        }
     }
     {
         let mut settings = state.settings.lock().unwrap();
         settings.reminder_enabled = enabled;
+        settings.reminder_mode = mode.clone();
         settings.reminder_time = time;
+        if mode == "interval" {
+            settings.reminder_interval_start = interval_start;
+            settings.reminder_interval_end = interval_end;
+            settings.reminder_interval_minutes = interval_minutes;
+        }
         settings.reminder_include_pinned = include_pinned;
     }
     save_json(&app, "settings.json", &*state.settings.lock().unwrap());
 
-    {
-        let mut rs = state.reminder.lock().unwrap();
-        rs.dismissed_on = None;
-        rs.prompted_on = None;
-    }
-    save_json(&app, "reminder_state.json", &*state.reminder.lock().unwrap());
+    // 注意：这里不清空 reminder_state。
+    // 之前每次保存设置都会把 last_prompted_at 重置为 None，导致改完时间后
+    // 下一轮 20 秒轮询立刻再弹一次（看起来像“不到一分钟就提示一遍”）。
+    // 调度本身每轮都会读取最新设置，不需要重置提醒状态。
 
     Ok(())
 }
