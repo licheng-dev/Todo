@@ -18,7 +18,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* 图标已在背景图垂直居中，文字排到图标下方 */
+  justify-content: flex-end;
+  padding-bottom: clamp(8px, 3vh, 24px);
   text-align: center;
 }
 
@@ -28,7 +30,7 @@
 }
 
 .title {
-  margin: 62px 0 0;
+  margin: 0;
   font-size: clamp(19px, 3.2vw, 26px);
   font-weight: 500;
   color: var(--ink-2);
