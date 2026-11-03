@@ -389,7 +389,9 @@ h2 {
 .body {
   flex: 1;
   min-height: 0;
+  /* 始终预留滚动条宽度，避免出现/消失时内容左右跳动 */
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 12px 14px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.28);
@@ -422,7 +424,8 @@ h2 {
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
-  overflow: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .cursor {

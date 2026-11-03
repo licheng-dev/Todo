@@ -112,7 +112,9 @@ watch(
   width: 100%;
   flex: 1;
   min-height: 0;
+  /* 始终预留滚动条宽度，避免出现/消失时内容左右跳动 */
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;

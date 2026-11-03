@@ -50,3 +50,27 @@ textarea {
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* 全局滚动条：细、淡，贴合玻璃质感 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(154, 143, 134, 0.22);
+  border-radius: 999px;
+  transition: background 160ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(154, 143, 134, 0.38);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

@@ -146,8 +146,12 @@ textarea::-webkit-scrollbar-track {
 }
 
 textarea::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.35);
-  border-radius: 2px;
+  background: rgba(154, 143, 134, 0.24);
+  border-radius: 999px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(154, 143, 134, 0.38);
 }
 
 .actions {
