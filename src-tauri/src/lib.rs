@@ -1005,3 +1005,77 @@ pub fn run() {
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINUTE_MS: u64 = 60_000;
+
+    #[test]
+    fn parse_hhmm_parses_valid_and_rejects_invalid() {
+        assert_eq!(parse_hhmm("09:30"), Some((9, 30)));
+        assert_eq!(parse_hhmm("23:59"), Some((23, 59)));
+        assert_eq!(parse_hhmm("9:00"), Some((9, 0)));
+        assert_eq!(parse_hhmm("24:00"), None);
+        assert_eq!(parse_hhmm("12:60"), None);
+        assert_eq!(parse_hhmm("abc"), None);
+    }
+
+    #[test]
+    fn split_todo_lines_treats_each_line_as_a_todo() {
+        assert_eq!(split_todo_lines("买牛奶\n写周报"), vec!["买牛奶", "写周报"]);
+        assert_eq!(
+            split_todo_lines("  买牛奶  \n\n 写周报 \r\n"),
+            vec!["买牛奶", "写周报"]
+        );
+        assert_eq!(split_todo_lines("单条待办"), vec!["单条待办"]);
+        assert!(split_todo_lines("  \n\n  ").is_empty());
+        assert!(split_todo_lines("").is_empty());
+    }
+
+    #[test]
+    fn interval_only_fires_inside_time_range() {
+        let (start, end) = (9 * 60, 18 * 60);
+        assert!(!interval_due(8 * 60 + 59, start, end, None, 0, 30));
+        assert!(interval_due(9 * 60, start, end, None, 0, 30));
+        assert!(interval_due(18 * 60, start, end, None, 0, 30));
+        assert!(!interval_due(18 * 60 + 1, start, end, None, 0, 30));
+    }
+
+    #[test]
+    fn interval_fires_when_never_prompted_today() {
+        assert!(interval_due(10 * 60, 9 * 60, 18 * 60, None, 1_000_000, 30));
+    }
+
+    /// 固定 09:00–18:00 区间，简化下面的断言行
+    fn due(now: u64, last: Option<u64>, interval: u32) -> bool {
+        interval_due(10 * 60, 9 * 60, 18 * 60, last, now, interval)
+    }
+
+    #[test]
+    fn interval_does_not_fire_again_within_interval() {
+        let now = 1_000_000_000_000;
+        // 20 秒前刚提醒过：即使轮询每 20 秒跑一次，1 分钟的间隔还没到
+        assert!(!due(now, Some(now - 20_000), 1));
+        // 差 1 毫秒到 1 分钟，也不应触发
+        assert!(!due(now, Some(now - 59_999), 1));
+        // 30 分钟间隔：29 分钟前提醒过，仍不应触发
+        assert!(!due(now, Some(now - 29 * MINUTE_MS), 30));
+    }
+
+    #[test]
+    fn interval_fires_after_interval_elapsed() {
+        let now = 1_000_000_000_000;
+        assert!(due(now, Some(now - MINUTE_MS), 1));
+        assert!(due(now, Some(now - 30 * MINUTE_MS), 30));
+        assert!(due(now, Some(now - 31 * MINUTE_MS), 30));
+    }
+
+    #[test]
+    fn interval_ignores_clock_going_backwards() {
+        // last_prompted_at 在未来（例如系统时间被调整）时不 panic，也不触发
+        let now = 1_000_000_000_000;
+        assert!(!due(now, Some(now + MINUTE_MS), 1));
+    }
+}
