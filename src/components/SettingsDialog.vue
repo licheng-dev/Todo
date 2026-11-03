@@ -453,6 +453,20 @@ onUnmounted(() => {
   backdrop-filter: blur(8px) saturate(130%);
 }
 
+/* 只淡入内容，玻璃层本身立即就位，避免背景图在过渡期闪现 */
+.glass > * {
+  animation: settings-content-in 200ms ease both;
+}
+
+@keyframes settings-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 h2 {
   margin: 0;
   font-size: 16px;
@@ -764,5 +778,11 @@ h2 {
 .update-btn:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass > * {
+    animation: none;
+  }
 }
 </style>

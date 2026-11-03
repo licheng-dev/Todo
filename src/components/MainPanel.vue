@@ -322,7 +322,11 @@ onUnmounted(() => {
     <main class="stage">
       <div class="stage-inner">
         <Transition name="swap">
-          <div v-if="view === 'settings'" key="settings" class="panel">
+          <div
+            v-if="view === 'settings'"
+            key="settings"
+            class="panel settings-view"
+          >
             <SettingsDialog @close="view = 'today'" />
           </div>
 
@@ -581,6 +585,19 @@ onUnmounted(() => {
 .swap-enter-from,
 .swap-leave-to {
   opacity: 0;
+}
+
+/*
+ * 设置页的玻璃层带 backdrop-filter，整块淡入时锐利的背景图会和
+ * 模糊版本混合，导致背景图标先闪一下再消失。这里让玻璃层立即
+ * 就位，只在 SettingsDialog 内部淡入内容。
+ */
+.settings-view.swap-enter-active {
+  transition: none;
+}
+
+.settings-view.swap-enter-from {
+  opacity: 1;
 }
 
 .cal-enter-active,
