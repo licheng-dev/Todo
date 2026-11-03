@@ -730,21 +730,36 @@ fn get_todos(app: AppHandle) -> Vec<Todo> {
     load_json(&app, "todos.json")
 }
 
+/// 把输入按行拆成多条待办：每行一条，去掉首尾空白，忽略空行。
+fn split_todo_lines(raw: &str) -> Vec<&str> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
 #[tauri::command]
 fn add_todo(app: AppHandle, text: String) -> Result<(), String> {
-    if text.trim().is_empty() {
+    let lines = split_todo_lines(&text);
+    if lines.is_empty() {
         return Ok(());
     }
     let mut todos: Vec<Todo> = load_json(&app, "todos.json");
-    todos.push(Todo {
-        id: now_ms(),
-        text: text.trim().to_string(),
-        done: false,
-        created_at: now_ms(),
-        completed_at: None,
-        defer_until: None,
-        pinned: false,
-    });
+    // 同一批待办可能在同一毫秒内创建，用递增 id 避免重复
+    let mut next_id = now_ms().max(todos.iter().map(|t| t.id).max().unwrap_or(0) + 1);
+    let created_at = now_ms();
+    for line in lines {
+        todos.push(Todo {
+            id: next_id,
+            text: line.to_string(),
+            done: false,
+            created_at,
+            completed_at: None,
+            defer_until: None,
+            pinned: false,
+        });
+        next_id += 1;
+    }
     save_json(&app, "todos.json", &todos);
     emit_todos(&app);
     Ok(())

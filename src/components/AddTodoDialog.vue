@@ -54,7 +54,7 @@ async function cancel() {
         <textarea
           ref="inputEl"
           v-model="draft"
-          placeholder="输入待办内容…"
+          placeholder="输入待办内容，换行即可添加多条…"
           rows="4"
           :disabled="busy"
           @keydown.meta.enter.prevent="submit"
